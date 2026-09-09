@@ -69,7 +69,7 @@ Requires Flutter SDK `>=3.3.0`.
 
 ```bash
 cd client
-flutter pub get   # generates pubspec.lock — commit it after this (recommended for apps)
+flutter pub get
 flutter run -d windows   # or: flutter run -d chrome / an Android device / emulator
 ```
 
@@ -139,7 +139,7 @@ D&D Hub заменяет бумажный (или неудобный элект�
 
 ```bash
 cd client
-flutter pub get   # сгенерирует pubspec.lock — закоммить его после этого (рекомендуется для приложений)
+flutter pub get
 flutter run -d windows   # или: flutter run -d chrome / устройство Android
 ```
 
