@@ -1,0 +1,44 @@
+name: dnd_hub
+description: "D&D Hub — локальный цифровой лист персонажа D&D"
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+
+  # Локальная БД
+  sqflite: ^2.3.3
+  sqflite_common_ffi: ^2.3.3      # для Windows/Linux/macOS
+  path: ^1.9.0
+  path_provider: ^2.1.3
+
+  # State management
+  provider: ^6.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter:
+  uses-material-design: true
+
+  # Не забудь положить свою картинку сюда:
+  # assets/icon/app_icon.png
+  assets:
+    - assets/icon/app_icon.png
+
+# Конфигурация генерации иконок (android + windows)
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/app_icon.png"
+  windows:
+    generate: true
+    icon_size: 256
