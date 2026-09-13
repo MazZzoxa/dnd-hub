@@ -7,6 +7,14 @@ class ItemModel {
   final String description;
   final double weight;
 
+  /// Ссылка на объект Local Content Library (см. docs/D&D Hub.md п.34),
+  /// из которого был добавлен этот предмет. null — предмет создан вручную
+  /// и не связан с библиотекой.
+  final int? libraryItemId;
+
+  /// Ссылка на источник (правило/книга/страница), необязательное поле.
+  final String sourceUrl;
+
   const ItemModel({
     this.id,
     required this.characterId,
@@ -15,6 +23,8 @@ class ItemModel {
     this.category = 'Other',
     this.description = '',
     this.weight = 0,
+    this.libraryItemId,
+    this.sourceUrl = '',
   });
 
   ItemModel copyWith({
@@ -25,6 +35,8 @@ class ItemModel {
     String? category,
     String? description,
     double? weight,
+    int? libraryItemId,
+    String? sourceUrl,
   }) {
     return ItemModel(
       id: id ?? this.id,
@@ -34,6 +46,8 @@ class ItemModel {
       category: category ?? this.category,
       description: description ?? this.description,
       weight: weight ?? this.weight,
+      libraryItemId: libraryItemId ?? this.libraryItemId,
+      sourceUrl: sourceUrl ?? this.sourceUrl,
     );
   }
 
@@ -46,6 +60,8 @@ class ItemModel {
       'category': category,
       'description': description,
       'weight': weight,
+      'library_item_id': libraryItemId,
+      'source_url': sourceUrl,
     };
   }
 
@@ -58,6 +74,8 @@ class ItemModel {
       category: map['category'] as String? ?? 'Other',
       description: map['description'] as String? ?? '',
       weight: (map['weight'] as num?)?.toDouble() ?? 0,
+      libraryItemId: map['library_item_id'] as int?,
+      sourceUrl: map['source_url'] as String? ?? '',
     );
   }
 }

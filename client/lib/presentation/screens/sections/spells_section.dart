@@ -3,10 +3,13 @@ import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../data/constants/dnd_data.dart';
+import '../../../data/models/library_item_model.dart';
 import '../../../data/models/spell_model.dart';
 import '../../../domain/providers/character_provider.dart';
 import '../../../domain/providers/spell_provider.dart';
 import '../../../domain/providers/spell_slot_provider.dart';
+import '../../widgets/add_options_sheet.dart';
+import '../../widgets/library_picker.dart';
 
 const _castingTimes = [
   '1 действие',
@@ -30,7 +33,7 @@ String _localizedComponents(String value) {
 /// Раздел заклинаний — см. п.17 ТЗ.
 /// Задача первой версии: удобно хранить и быстро находить заклинания,
 /// плюс отслеживать ячейки заклинаний и заклинательную статистику
-/// (класс/характеристика/Сложность спасения/бонус атаки), как на листе Aternia.
+/// (класс/характеристика/Сложность спасения/бонус атаки), как на листе персонажа.
 class SpellsSection extends StatefulWidget {
   const SpellsSection({super.key});
 
@@ -97,7 +100,11 @@ class _SpellsSectionState extends State<SpellsSection> {
               right: 8,
               bottom: 8,
               child: FloatingActionButton(
-                onPressed: () => _showSpellDialog(context, characterId: characterId),
+                onPressed: () => showAddOptionsSheet(
+                  context,
+                  onManual: () => _showSpellDialog(context, characterId: characterId),
+                  onFromLibrary: () => _addFromLibrary(context, characterId: characterId),
+                ),
                 child: const Icon(Icons.add),
               ),
             ),
@@ -105,6 +112,27 @@ class _SpellsSectionState extends State<SpellsSection> {
         );
       },
     );
+  }
+
+  static Future<void> _addFromLibrary(BuildContext context, {required int characterId}) async {
+    final picked = await showLibraryPickerDialog(context, type: LibraryItemType.spell);
+    if (picked == null || !context.mounted) return;
+
+    final data = picked.data;
+    final spell = SpellModel(
+      characterId: characterId,
+      name: picked.name,
+      level: (data['level'] as num?)?.toInt() ?? 0,
+      type: data['school'] as String? ?? '',
+      range: data['range'] as String? ?? '',
+      components: data['components'] as String? ?? '',
+      castingTime: data['castingTime'] as String? ?? '',
+      duration: data['duration'] as String? ?? '',
+      description: data['description'] as String? ?? '',
+      libraryItemId: picked.id,
+      sourceUrl: picked.sourceUrl,
+    );
+    await context.read<SpellProvider>().addSpell(spell);
   }
 
   static Future<void> _showSpellDialog(
@@ -120,6 +148,7 @@ class _SpellsSectionState extends State<SpellsSection> {
     String castingTime = existing?.castingTime ?? '';
     final durationController = TextEditingController(text: existing?.duration ?? '');
     final descriptionController = TextEditingController(text: existing?.description ?? '');
+    final sourceUrlController = TextEditingController(text: existing?.sourceUrl ?? '');
     bool prepared = existing?.prepared ?? false;
 
     final saved = await showDialog<bool>(
@@ -193,6 +222,12 @@ class _SpellsSectionState extends State<SpellsSection> {
                   decoration: const InputDecoration(labelText: 'Описание'),
                   maxLines: 3,
                 ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: sourceUrlController,
+                  decoration: const InputDecoration(labelText: 'Ссылка на источник (необязательно)'),
+                  keyboardType: TextInputType.url,
+                ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Подготовлено'),
@@ -239,6 +274,7 @@ class _SpellsSectionState extends State<SpellsSection> {
       duration: durationController.text.trim(),
       description: descriptionController.text.trim(),
       prepared: prepared,
+      sourceUrl: sourceUrlController.text.trim(),
     );
 
     final provider = context.read<SpellProvider>();
@@ -251,7 +287,7 @@ class _SpellsSectionState extends State<SpellsSection> {
 }
 
 /// Класс заклинателя, базовая характеристика, Сложность спасения и бонус
-/// атаки заклинанием — верхний блок страницы заклинаний на листе Aternia.
+/// атаки заклинанием — верхний блок страницы заклинаний на листе персонажа.
 class _SpellcastingHeader extends StatelessWidget {
   const _SpellcastingHeader();
 

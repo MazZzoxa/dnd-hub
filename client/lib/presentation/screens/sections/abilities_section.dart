@@ -3,8 +3,11 @@ import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/ability_model.dart';
+import '../../../data/models/library_item_model.dart';
 import '../../../domain/providers/ability_provider.dart';
 import '../../../domain/providers/character_provider.dart';
+import '../../widgets/add_options_sheet.dart';
+import '../../widgets/library_picker.dart';
 
 /// Раздел способностей — см. п.18 ТЗ (классовые/расовые способности, таланты).
 class AbilitiesSection extends StatefulWidget {
@@ -121,7 +124,11 @@ class _AbilitiesSectionState extends State<AbilitiesSection> {
               right: 8,
               bottom: 8,
               child: FloatingActionButton(
-                onPressed: () => _showAbilityDialog(context, characterId: characterId),
+                onPressed: () => showAddOptionsSheet(
+                  context,
+                  onManual: () => _showAbilityDialog(context, characterId: characterId),
+                  onFromLibrary: () => _addFromLibrary(context, characterId: characterId),
+                ),
                 child: const Icon(Icons.add),
               ),
             ),
@@ -129,6 +136,22 @@ class _AbilitiesSectionState extends State<AbilitiesSection> {
         );
       },
     );
+  }
+
+  static Future<void> _addFromLibrary(BuildContext context, {required int characterId}) async {
+    final picked = await showLibraryPickerDialog(context, type: LibraryItemType.ability);
+    if (picked == null || !context.mounted) return;
+
+    final data = picked.data;
+    final ability = AbilityModel(
+      characterId: characterId,
+      name: picked.name,
+      source: data['source'] as String? ?? '',
+      description: data['description'] as String? ?? '',
+      libraryItemId: picked.id,
+      sourceUrl: picked.sourceUrl,
+    );
+    await context.read<AbilityProvider>().addAbility(ability);
   }
 
   static Future<void> _showAbilityDialog(
@@ -139,6 +162,7 @@ class _AbilitiesSectionState extends State<AbilitiesSection> {
     final nameController = TextEditingController(text: existing?.name ?? '');
     final sourceController = TextEditingController(text: existing?.source ?? '');
     final descriptionController = TextEditingController(text: existing?.description ?? '');
+    final sourceUrlController = TextEditingController(text: existing?.sourceUrl ?? '');
 
     final saved = await showDialog<bool>(
       context: context,
@@ -164,6 +188,12 @@ class _AbilitiesSectionState extends State<AbilitiesSection> {
                 controller: descriptionController,
                 decoration: const InputDecoration(labelText: 'Описание'),
                 maxLines: 4,
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: sourceUrlController,
+                decoration: const InputDecoration(labelText: 'Ссылка на источник (необязательно)'),
+                keyboardType: TextInputType.url,
               ),
             ],
           ),
@@ -218,6 +248,7 @@ class _AbilitiesSectionState extends State<AbilitiesSection> {
       source: sourceController.text.trim(),
       description: descriptionController.text.trim(),
       sortOrder: existing?.sortOrder ?? 0,
+      sourceUrl: sourceUrlController.text.trim(),
     );
 
     final provider = context.read<AbilityProvider>();

@@ -13,9 +13,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     CreateAndAttachConsole();
   }
 
-  // Initialize COM, so that it is available for use in the library and/or
-  // plugins.
-  ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  // Initialize COM in the same apartment model used by the OCR WinRT plugin.
+  // This avoids RPC_E_CHANGED_MODE when flutter_ocr_native calls
+  // winrt::init_apartment() during plugin registration.
+  ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
   flutter::DartProject project(L"data");
 

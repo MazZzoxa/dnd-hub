@@ -2,7 +2,7 @@
 
 A local-first, cross-platform D&D character manager built with Flutter — a fast, offline digital character sheet for use during actual game sessions.
 
-**Status:** early WIP, `v0.1` — local character client (see [Roadmap](#roadmap--english)).
+**Status:** `v0.2` — import / export, local content library, backup / restore (see [Roadmap](#roadmap--english)).
 **Author:** [@MazZzoxa](https://github.com/MazZzoxa)
 
 🇬🇧 [English](#-dd-hub) · 🇷🇺 [Русский](#-dd-hub-1)
@@ -21,7 +21,7 @@ D&D Hub replaces the paper (or clunky digital) character sheet with a fast, inte
 
 Core principle: **local-first**. No account, no server, no mandatory internet connection. All character data lives on the device in a local SQLite database. Cloud sync and multiplayer (Campaign/GM mode) are planned for later versions, layered on top of a solid offline foundation — not required to use the app.
 
-### Features (v0.1)
+### Features (v0.2)
 
 - Character profile: race, class, subclass, background, alignment, level
 - Six core attributes with modifiers
@@ -33,6 +33,10 @@ Core principle: **local-first**. No account, no server, no mandatory internet co
 - Bio (appearance, personality traits, ideals, bonds, flaws, backstory)
 - Freeform notes
 - Responsive UI: bottom navigation on phones, side `NavigationRail` on wide/desktop screens — same widgets, same data, no duplicated logic
+- PDF, URL and JSON import through a shared Import Manager
+- Local Content Library for items, spells, abilities and other content
+- JSON / `.dndhub` export and import
+- Full local backup / restore
 
 ### Tech stack
 
@@ -63,13 +67,35 @@ Core principle: **local-first**. No account, no server, no mandatory internet co
 
 </details>
 
+### v0.2 screenshots
+
+#### Windows
+
+![Windows — character list](screenshots/v0.2/windows/character-list.png)
+
+![Windows — overview](screenshots/v0.2/windows/overview.png)
+
+![Windows — spells](screenshots/v0.2/windows/spells.png)
+
+![Windows — library](screenshots/v0.2/windows/library.png)
+
+#### Android
+
+![Android — character list](screenshots/v0.2/android/character-list.png)
+
+![Android — overview](screenshots/v0.2/android/overview.png)
+
+![Android — spells](screenshots/v0.2/android/spells.png)
+
+![Android — library](screenshots/v0.2/android/library.png)
+
 ### Getting started
 
 Requires Flutter SDK `>=3.3.0`.
 
 ```bash
 cd client
-flutter pub get
+flutter pub get  
 flutter run -d windows   # or: flutter run -d chrome / an Android device / emulator
 ```
 
@@ -79,8 +105,8 @@ The project follows a **local-first → library → campaign → GM → sync →
 
 | Version | Milestone |
 |---|---|
-| **v0.1** ✅ | Local character client (this release) |
-| v0.2 | Import / export, local content library |
+| **v0.1** ✅ | Local character client |
+| **v0.2** ✅ | Import / export, local content library, backup / restore |
 | v0.3 | Campaigns, full XP system |
 | v0.4 | GM mode |
 | v0.5 | Local GM server + real-time sync |
@@ -101,7 +127,7 @@ Full detailed design document (in Russian): [`docs/D&D Hub.md`](docs/D&D%20Hub.m
 
 Кроссплатформенный **local-first** менеджер персонажей D&D на Flutter — быстрый офлайн цифровой лист персонажа для использования прямо во время игровой сессии.
 
-**Статус:** ранняя разработка, `v0.1` — локальный клиент персонажа (см. [Roadmap](#roadmap--русский)).
+**Статус:** `v0.2` — импорт/экспорт, локальная библиотека контента, backup/restore (см. [Roadmap](#roadmap--русский)).
 
 ### О проекте
 
@@ -109,7 +135,7 @@ D&D Hub заменяет бумажный (или неудобный элект�
 
 Главный принцип — **local-first**: без аккаунта, без сервера, без обязательного интернета. Все данные персонажа хранятся локально в SQLite. Синхронизация и совместная игра (Campaign/GM) запланированы на будущие версии поверх надёжного офлайн-фундамента, а не как обязательное требование.
 
-### Возможности (v0.1)
+### Возможности (v0.2)
 
 - Профиль персонажа: раса, класс, подкласс, предыстория, мировоззрение, уровень
 - 6 базовых характеристик с модификаторами
@@ -139,7 +165,7 @@ D&D Hub заменяет бумажный (или неудобный элект�
 
 ```bash
 cd client
-flutter pub get
+flutter pub get  
 flutter run -d windows   # или: flutter run -d chrome / устройство Android
 ```
 
@@ -149,8 +175,8 @@ flutter run -d windows   # или: flutter run -d chrome / устройство 
 
 | Версия | Этап |
 |---|---|
-| **v0.1** ✅ | Локальный клиент персонажа (текущий релиз) |
-| v0.2 | Импорт/экспорт, локальная библиотека контента |
+| **v0.1** ✅ | Локальный клиент персонажа |
+| **v0.2** ✅ | Импорт/экспорт, локальная библиотека контента, backup / restore |
 | v0.3 | Кампании, полноценная система опыта |
 | v0.4 | Режим GM |
 | v0.5 | Локальный GM-сервер + синхронизация в реальном времени |

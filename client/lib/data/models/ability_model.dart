@@ -6,6 +6,14 @@ class AbilityModel {
   final String source; // класс / раса / талант / другое
   final int sortOrder;
 
+  /// Ссылка на объект Local Content Library (см. docs/D&D Hub.md п.34),
+  /// из которого была добавлена эта способность. null — создана вручную.
+  final int? libraryItemId;
+
+  /// Ссылка на источник (правило/книга/страница), необязательное поле.
+  /// Не путать с [source] — тот хранит происхождение (класс/раса/талант).
+  final String sourceUrl;
+
   const AbilityModel({
     this.id,
     required this.characterId,
@@ -13,6 +21,8 @@ class AbilityModel {
     this.description = '',
     this.source = '',
     this.sortOrder = 0,
+    this.libraryItemId,
+    this.sourceUrl = '',
   });
 
   AbilityModel copyWith({
@@ -22,6 +32,8 @@ class AbilityModel {
     String? description,
     String? source,
     int? sortOrder,
+    int? libraryItemId,
+    String? sourceUrl,
   }) {
     return AbilityModel(
       id: id ?? this.id,
@@ -30,6 +42,8 @@ class AbilityModel {
       description: description ?? this.description,
       source: source ?? this.source,
       sortOrder: sortOrder ?? this.sortOrder,
+      libraryItemId: libraryItemId ?? this.libraryItemId,
+      sourceUrl: sourceUrl ?? this.sourceUrl,
     );
   }
 
@@ -41,6 +55,8 @@ class AbilityModel {
       'description': description,
       'source': source,
       'sort_order': sortOrder,
+      'library_item_id': libraryItemId,
+      'source_url': sourceUrl,
     };
   }
 
@@ -52,6 +68,8 @@ class AbilityModel {
       description: map['description'] as String? ?? '',
       source: map['source'] as String? ?? '',
       sortOrder: map['sort_order'] as int? ?? 0,
+      libraryItemId: map['library_item_id'] as int?,
+      sourceUrl: map['source_url'] as String? ?? '',
     );
   }
 }

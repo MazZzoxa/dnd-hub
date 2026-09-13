@@ -20,7 +20,15 @@ class DatabaseHelper {
   // v2: добавлены поля полного листа персонажа (спасброски, навыки,
   // заклинательная статистика, ролевые поля) + таблицы attacks и spell_slots.
   // v3: добавлено время накладывания заклинаний и порядок способностей.
-  static const _dbVersion = 3;
+  // v4: добавлена таблица library_items (Local Content Library, v0.2,
+  // см. docs/D&D Hub.md п.20-22) + поле library_item_id в items/spells/
+  // abilities — связь копии на листе персонажа с исходным объектом
+  // библиотеки (п.34: один объект библиотеки может использоваться
+  // несколькими персонажами без повторного импорта).
+  // v5: добавлено поле source_url (ссылка на источник/книгу/страницу) в
+  // items/spells/abilities — по образцу одноимённого поля library_items,
+  // но заполняется отдельно при создании прямо на листе персонажа.
+  static const _dbVersion = 5;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -117,6 +125,26 @@ class DatabaseHelper {
       )
     ''');
 
+    // Local Content Library (v0.2, см. docs/D&D Hub.md п.20-22, 68).
+    // Библиотека отделена от персонажей: объект создаётся/импортируется
+    // один раз и затем может переиспользоваться разными персонажами
+    // (п.34) — при добавлении на лист персонажа создаётся копия в
+    // items/spells/abilities со ссылкой library_item_id на исходник.
+    await db.execute('''
+      CREATE TABLE library_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        data TEXT NOT NULL DEFAULT '{}',
+        source_type TEXT NOT NULL DEFAULT 'USER_CREATED',
+        source_url TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_library_items_type ON library_items (type)');
+    await db.execute('CREATE INDEX idx_library_items_name ON library_items (name COLLATE NOCASE)');
+
     await db.execute('''
       CREATE TABLE items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,7 +154,10 @@ class DatabaseHelper {
         category TEXT NOT NULL DEFAULT 'Other',
         description TEXT NOT NULL DEFAULT '',
         weight REAL NOT NULL DEFAULT 0,
-        FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE
+        library_item_id INTEGER,
+        source_url TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE,
+        FOREIGN KEY (library_item_id) REFERENCES library_items (id) ON DELETE SET NULL
       )
     ''');
 
@@ -143,7 +174,10 @@ class DatabaseHelper {
         duration TEXT NOT NULL DEFAULT '',
         description TEXT NOT NULL DEFAULT '',
         prepared INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE
+        library_item_id INTEGER,
+        source_url TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE,
+        FOREIGN KEY (library_item_id) REFERENCES library_items (id) ON DELETE SET NULL
       )
     ''');
 
@@ -155,7 +189,10 @@ class DatabaseHelper {
         description TEXT NOT NULL DEFAULT '',
         source TEXT NOT NULL DEFAULT '',
         sort_order INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE
+        library_item_id INTEGER,
+        source_url TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE,
+        FOREIGN KEY (library_item_id) REFERENCES library_items (id) ON DELETE SET NULL
       )
     ''');
 
@@ -270,6 +307,41 @@ class DatabaseHelper {
           );
         }
       });
+    }
+
+    if (oldVersion < 4) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS library_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          type TEXT NOT NULL,
+          name TEXT NOT NULL,
+          data TEXT NOT NULL DEFAULT '{}',
+          source_type TEXT NOT NULL DEFAULT 'USER_CREATED',
+          source_url TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      ''');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_library_items_type ON library_items (type)',
+      );
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_library_items_name ON library_items (name COLLATE NOCASE)',
+      );
+
+      // ALTER TABLE ... ADD COLUMN не позволяет добавить FOREIGN KEY так же
+      // явно, как в CREATE TABLE, поэтому для апгрейда добавляем обычную
+      // nullable-колонку; ссылочная целостность проверяется на уровне
+      // репозитория (см. п.34 ТЗ).
+      await db.execute('ALTER TABLE items ADD COLUMN library_item_id INTEGER');
+      await db.execute('ALTER TABLE spells ADD COLUMN library_item_id INTEGER');
+      await db.execute('ALTER TABLE abilities ADD COLUMN library_item_id INTEGER');
+    }
+
+    if (oldVersion < 5) {
+      await db.execute("ALTER TABLE items ADD COLUMN source_url TEXT NOT NULL DEFAULT ''");
+      await db.execute("ALTER TABLE spells ADD COLUMN source_url TEXT NOT NULL DEFAULT ''");
+      await db.execute("ALTER TABLE abilities ADD COLUMN source_url TEXT NOT NULL DEFAULT ''");
     }
   }
 

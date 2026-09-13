@@ -10,7 +10,7 @@ import '../../../domain/providers/character_provider.dart';
 import '../../widgets/quick_adjust_card.dart';
 import '../../widgets/stat_box.dart';
 
-/// Главный экран персонажа: соответствует первой странице листа Aternia —
+/// Главный экран персонажа: соответствует первой странице листа персонажа —
 /// HP / AC / Initiative / вдохновение / спасброски / навыки / атаки и т.д.
 /// Всё, что нужно "во время сессии", собрано на одном скроллящемся экране.
 class OverviewSection extends StatefulWidget {

@@ -884,7 +884,7 @@ SQLite
 Не использовать отдельные кнопки вида:
 
 ```text
-Import from Aternia
+Import from character sheet
 Import from Website X
 ```
 
@@ -2136,11 +2136,11 @@ ImportManager
 ├── PDFImporter
 ├── URLImporter
 ├── JSONImporter
-├── AterniaImporter
+├── CharacterSheetRemoteImporter
 └── FutureImporter
 ```
 
-Aternia является только **одним из возможных внешних источников**, а внутренняя модель D&D Hub не зависит от него.
+remote sheet service является только **одним из возможных внешних источников**, а внутренняя модель D&D Hub не зависит от него.
 
 ---
 

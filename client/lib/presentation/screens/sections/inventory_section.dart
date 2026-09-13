@@ -3,8 +3,11 @@ import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/item_model.dart';
+import '../../../data/models/library_item_model.dart';
 import '../../../domain/providers/character_provider.dart';
 import '../../../domain/providers/inventory_provider.dart';
+import '../../widgets/add_options_sheet.dart';
+import '../../widgets/library_picker.dart';
 
 const _categories = ['Weapons', 'Armor', 'Consumables', 'Other'];
 
@@ -78,7 +81,11 @@ class _InventorySectionState extends State<InventorySection> {
               right: 8,
               bottom: 8,
               child: FloatingActionButton(
-                onPressed: () => _showItemDialog(context, characterId: characterId),
+                onPressed: () => showAddOptionsSheet(
+                  context,
+                  onManual: () => _showItemDialog(context, characterId: characterId),
+                  onFromLibrary: () => _addFromLibrary(context, characterId: characterId),
+                ),
                 child: const Icon(Icons.add),
               ),
             ),
@@ -86,6 +93,23 @@ class _InventorySectionState extends State<InventorySection> {
         );
       },
     );
+  }
+
+  static Future<void> _addFromLibrary(BuildContext context, {required int characterId}) async {
+    final picked = await showLibraryPickerDialog(context, type: LibraryItemType.item);
+    if (picked == null || !context.mounted) return;
+
+    final data = picked.data;
+    final item = ItemModel(
+      characterId: characterId,
+      name: picked.name,
+      category: data['category'] as String? ?? 'Other',
+      weight: (data['weight'] as num?)?.toDouble() ?? 0,
+      description: data['description'] as String? ?? '',
+      libraryItemId: picked.id,
+      sourceUrl: picked.sourceUrl,
+    );
+    await context.read<InventoryProvider>().addItem(item);
   }
 
   static Future<void> _showItemDialog(
@@ -99,6 +123,7 @@ class _InventorySectionState extends State<InventorySection> {
     final weightController =
         TextEditingController(text: existing?.weight != null ? '${existing!.weight}' : '0');
     final descriptionController = TextEditingController(text: existing?.description ?? '');
+    final sourceUrlController = TextEditingController(text: existing?.sourceUrl ?? '');
     String category = existing?.category ?? _categories.first;
 
     final saved = await showDialog<bool>(
@@ -139,7 +164,7 @@ class _InventorySectionState extends State<InventorySection> {
                       child: TextField(
                         controller: weightController,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: const InputDecoration(labelText: 'Вес'),
+                        decoration: const InputDecoration(labelText: 'Вес (фунты)'),
                       ),
                     ),
                   ],
@@ -149,6 +174,12 @@ class _InventorySectionState extends State<InventorySection> {
                   controller: descriptionController,
                   decoration: const InputDecoration(labelText: 'Описание'),
                   maxLines: 3,
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: sourceUrlController,
+                  decoration: const InputDecoration(labelText: 'Ссылка на источник (необязательно)'),
+                  keyboardType: TextInputType.url,
                 ),
               ],
             ),
@@ -178,6 +209,7 @@ class _InventorySectionState extends State<InventorySection> {
       quantity: int.tryParse(quantityController.text.trim()) ?? 1,
       weight: double.tryParse(weightController.text.trim()) ?? 0,
       description: descriptionController.text.trim(),
+      sourceUrl: sourceUrlController.text.trim(),
     );
 
     final provider = context.read<InventoryProvider>();

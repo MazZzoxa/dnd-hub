@@ -26,7 +26,7 @@ class SkillInfo {
   const SkillInfo(this.key, this.label, this.ability);
 }
 
-/// Список из 18 навыков, как на листе Aternia.
+/// Список из 18 навыков, как на стандартном листе персонажа.
 const List<SkillInfo> kSkills = [
   SkillInfo('acrobatics', 'Акробатика', 'dex'),
   SkillInfo('investigation', 'Анализ', 'int'),

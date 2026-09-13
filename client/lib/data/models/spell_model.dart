@@ -11,6 +11,13 @@ class SpellModel {
   final String description;
   final bool prepared;
 
+  /// Ссылка на объект Local Content Library (см. docs/D&D Hub.md п.34),
+  /// из которого было добавлено это заклинание. null — создано вручную.
+  final int? libraryItemId;
+
+  /// Ссылка на источник (правило/книга/страница), необязательное поле.
+  final String sourceUrl;
+
   const SpellModel({
     this.id,
     required this.characterId,
@@ -23,6 +30,8 @@ class SpellModel {
     this.duration = '',
     this.description = '',
     this.prepared = false,
+    this.libraryItemId,
+    this.sourceUrl = '',
   });
 
   SpellModel copyWith({
@@ -37,6 +46,8 @@ class SpellModel {
     String? duration,
     String? description,
     bool? prepared,
+    int? libraryItemId,
+    String? sourceUrl,
   }) {
     return SpellModel(
       id: id ?? this.id,
@@ -50,6 +61,8 @@ class SpellModel {
       duration: duration ?? this.duration,
       description: description ?? this.description,
       prepared: prepared ?? this.prepared,
+      libraryItemId: libraryItemId ?? this.libraryItemId,
+      sourceUrl: sourceUrl ?? this.sourceUrl,
     );
   }
 
@@ -66,6 +79,8 @@ class SpellModel {
       'duration': duration,
       'description': description,
       'prepared': prepared ? 1 : 0,
+      'library_item_id': libraryItemId,
+      'source_url': sourceUrl,
     };
   }
 
@@ -82,6 +97,8 @@ class SpellModel {
       duration: map['duration'] as String? ?? '',
       description: map['description'] as String? ?? '',
       prepared: (map['prepared'] as int? ?? 0) == 1,
+      libraryItemId: map['library_item_id'] as int?,
+      sourceUrl: map['source_url'] as String? ?? '',
     );
   }
 }

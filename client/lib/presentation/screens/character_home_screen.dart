@@ -2,6 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../domain/providers/character_provider.dart';
+import '../../domain/providers/inventory_provider.dart';
+import '../../domain/providers/spell_provider.dart';
+import '../../domain/providers/ability_provider.dart';
+import '../../data/export/export_manager.dart';
+import '../../data/models/character_model.dart';
+import '../widgets/export_format_dialog.dart';
+import '../widgets/character_library_add_dialog.dart';
 import 'sections/abilities_section.dart';
 import 'sections/bio_section.dart';
 import 'sections/inventory_section.dart';
@@ -54,6 +61,46 @@ class _CharacterHomeScreenState extends State<CharacterHomeScreen> {
     }
   }
 
+  Future<void> _exportCharacter(BuildContext context, CharacterModel character) async {
+    final format = await showExportFormatDialog(context);
+    if (format == null || !context.mounted) return;
+
+    try {
+      final fileName = await ExportManager().exportCharacter(character, format: format);
+      if (!context.mounted || fileName == null) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Экспортировано: $fileName')),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось экспортировать: $error')),
+      );
+    }
+  }
+
+
+  Future<void> _addToLibrary(BuildContext context, CharacterModel character) async {
+    final added = await showCharacterLibraryAddDialog(
+      context,
+      characterId: character.id!,
+    );
+    if (!context.mounted || added == null || added == 0) return;
+
+    // Обновляем разделы, чтобы новые libraryItemId сразу были видны,
+    // когда пользователь переключится на инвентарь/заклинания/способности.
+    await Future.wait([
+      context.read<InventoryProvider>().loadForCharacter(character.id!),
+      context.read<SpellProvider>().loadForCharacter(character.id!),
+      context.read<AbilityProvider>().loadForCharacter(character.id!),
+    ]);
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Добавлено в библиотеку: $added')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final character = context.watch<CharacterProvider>().selected;
@@ -61,6 +108,20 @@ class _CharacterHomeScreenState extends State<CharacterHomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(character?.name ?? 'D&D Hub'),
+        actions: [
+          if (character != null) ...[
+            IconButton(
+              icon: const Icon(Icons.library_add_outlined),
+              tooltip: 'Добавить в библиотеку',
+              onPressed: () => _addToLibrary(context, character),
+            ),
+            IconButton(
+              icon: const Icon(Icons.file_upload_outlined),
+              tooltip: 'Экспортировать персонажа',
+              onPressed: () => _exportCharacter(context, character),
+            ),
+          ],
+        ],
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
