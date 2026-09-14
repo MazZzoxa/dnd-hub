@@ -28,7 +28,7 @@ class DatabaseHelper {
   // v5: добавлено поле source_url (ссылка на источник/книгу/страницу) в
   // items/spells/abilities — по образцу одноимённого поля library_items,
   // но заполняется отдельно при создании прямо на листе персонажа.
-  static const _dbVersion = 5;
+  static const _dbVersion = 6;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -66,7 +66,17 @@ class DatabaseHelper {
       },
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
+      // Self-heal databases that have already been stamped with schema v6
+      // but were created by an earlier v0.3 build before the campaign/XP
+      // tables were actually present. This can happen because SQLite only
+      // invokes onUpgrade when the stored user_version is lower than the
+      // requested version.
+      onOpen: _onOpen,
     );
+  }
+
+  Future<void> _onOpen(Database db) async {
+    await _ensureV03Schema(db);
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -220,6 +230,49 @@ class DatabaseHelper {
     ''');
 
     await db.execute('''
+      CREATE TABLE campaigns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE campaign_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('gm', 'player')),
+        linked_character_id INTEGER,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE,
+        FOREIGN KEY (linked_character_id) REFERENCES characters (id) ON DELETE SET NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_campaign_members_campaign ON campaign_members (campaign_id)');
+    await db.execute('CREATE INDEX idx_campaign_members_character ON campaign_members (linked_character_id)');
+    await db.execute("CREATE UNIQUE INDEX idx_campaign_one_gm ON campaign_members(campaign_id) WHERE role = 'gm'");
+    await db.execute('CREATE UNIQUE INDEX idx_campaign_character_once ON campaign_members(campaign_id, linked_character_id) WHERE linked_character_id IS NOT NULL');
+
+    await db.execute('''
+      CREATE TABLE xp_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        character_id INTEGER NOT NULL,
+        delta INTEGER NOT NULL,
+        xp_before INTEGER NOT NULL,
+        xp_after INTEGER NOT NULL,
+        level_before INTEGER NOT NULL,
+        level_after INTEGER NOT NULL,
+        reason TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_xp_transactions_character ON xp_transactions(character_id, created_at DESC, id DESC)');
+
+    await db.execute('''
       CREATE TABLE spell_slots (
         character_id INTEGER NOT NULL,
         level INTEGER NOT NULL,
@@ -229,6 +282,61 @@ class DatabaseHelper {
         FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE
       )
     ''');
+  }
+
+
+  /// Ensures the v0.3 tables exist even when a database reports version 6
+  /// but was produced by a partially applied v0.3 migration. All statements
+  /// are idempotent.
+  Future<void> _ensureV03Schema(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS campaigns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS campaign_members (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('gm', 'player')),
+        linked_character_id INTEGER,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE,
+        FOREIGN KEY (linked_character_id) REFERENCES characters (id) ON DELETE SET NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_campaign_members_campaign ON campaign_members (campaign_id)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_campaign_members_character ON campaign_members (linked_character_id)');
+    await db.execute(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_campaign_one_gm ON campaign_members(campaign_id) WHERE role = 'gm'",
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_campaign_character_once ON campaign_members(campaign_id, linked_character_id) WHERE linked_character_id IS NOT NULL',
+    );
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS xp_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        character_id INTEGER NOT NULL,
+        delta INTEGER NOT NULL,
+        xp_before INTEGER NOT NULL,
+        xp_after INTEGER NOT NULL,
+        level_before INTEGER NOT NULL,
+        level_after INTEGER NOT NULL,
+        reason TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_xp_transactions_character ON xp_transactions(character_id, created_at DESC, id DESC)',
+    );
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -342,6 +450,63 @@ class DatabaseHelper {
       await db.execute("ALTER TABLE items ADD COLUMN source_url TEXT NOT NULL DEFAULT ''");
       await db.execute("ALTER TABLE spells ADD COLUMN source_url TEXT NOT NULL DEFAULT ''");
       await db.execute("ALTER TABLE abilities ADD COLUMN source_url TEXT NOT NULL DEFAULT ''");
+    }
+
+
+    if (oldVersion < 6) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS campaigns (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS campaign_members (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          campaign_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          role TEXT NOT NULL CHECK (role IN ('gm', 'player')),
+          linked_character_id INTEGER,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE,
+          FOREIGN KEY (linked_character_id) REFERENCES characters (id) ON DELETE SET NULL
+        )
+      ''');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_campaign_members_campaign ON campaign_members (campaign_id)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_campaign_members_character ON campaign_members (linked_character_id)');
+      await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_campaign_one_gm ON campaign_members(campaign_id) WHERE role = 'gm'");
+      await db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_campaign_character_once ON campaign_members(campaign_id, linked_character_id) WHERE linked_character_id IS NOT NULL');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS xp_transactions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          character_id INTEGER NOT NULL,
+          delta INTEGER NOT NULL,
+          xp_before INTEGER NOT NULL,
+          xp_after INTEGER NOT NULL,
+          level_before INTEGER NOT NULL,
+          level_after INTEGER NOT NULL,
+          reason TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE
+        )
+      ''');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_xp_transactions_character ON xp_transactions(character_id, created_at DESC, id DESC)');
+
+      // v0.3 establishes XP as the source of truth for level. Reconcile
+      // existing v0.2 characters without inventing XP history entries.
+      final characters = await db.query('characters', columns: ['id', 'xp']);
+      const thresholds = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000];
+      for (final row in characters) {
+        final xp = ((row['xp'] as int?) ?? 0).clamp(0, 1 << 30);
+        var level = 1;
+        for (var i = thresholds.length - 1; i >= 0; i--) {
+          if (xp >= thresholds[i]) { level = i + 1; break; }
+        }
+        await db.update('characters', {'xp': xp, 'level': level}, where: 'id = ?', whereArgs: [row['id']]);
+      }
     }
   }
 

@@ -1,11 +1,11 @@
 # 🎲 D&D Hub
 
-A local-first, cross-platform D&D character manager built with Flutter — a fast, offline digital character sheet for use during actual game sessions.
+A local-first, cross-platform D&D character and campaign manager built with Flutter — designed for fast, offline use during actual game sessions.
 
-**Status:** `v0.2` — import / export, local content library, backup / restore (see [Roadmap](#roadmap--english)).
+**Status:** `v0.3.0` — campaigns, participants, character linking, XP progression and XP history.  
 **Author:** [@MazZzoxa](https://github.com/MazZzoxa)
 
-🇬🇧 [English](#-dd-hub) · 🇷🇺 [Русский](#-dd-hub-1)
+🇬🇧 [English](#-d-d-hub) · 🇷🇺 [Русский](#-d-d-hub-1)
 
 <p align="center">
   <img src="screenshots/win-overview.png" alt="D&D Hub — desktop overview" width="70%">
@@ -19,31 +19,75 @@ A local-first, cross-platform D&D character manager built with Flutter — a fas
 
 D&D Hub replaces the paper (or clunky digital) character sheet with a fast, interactive tool designed to be used *at the table*, during a session — not just between them.
 
-Core principle: **local-first**. No account, no server, no mandatory internet connection. All character data lives on the device in a local SQLite database. Cloud sync and multiplayer (Campaign/GM mode) are planned for later versions, layered on top of a solid offline foundation — not required to use the app.
+The project follows a **local-first** approach:
 
-### Features (v0.2)
+- no account is required;
+- no server is required;
+- no mandatory internet connection;
+- character, campaign and progression data are stored locally in SQLite.
+
+The project is intentionally developed in stages: character management → import/export and local content → campaigns → GM tools → synchronization → battle and session tools.
+
+### Features (v0.3)
+
+#### Character management
 
 - Character profile: race, class, subclass, background, alignment, level
 - Six core attributes with modifiers
 - Combat stats: HP / temp HP, AC, initiative, speed, proficiency bonus
-- Quick +/- adjusters for HP, gold, XP — the things that change constantly mid-session
-- Inventory (weapons, armor, misc items)
-- Spells with per-level spell slots and a spell list
-- Abilities & attacks
-- Bio (appearance, personality traits, ideals, bonds, flaws, backstory)
+- Quick +/- adjusters for HP, gold and XP
+- Inventory: weapons, armor and miscellaneous items
+- Spells with per-level spell slots and spell list
+- Abilities and attacks
+- Bio: appearance, personality traits, ideals, bonds, flaws and backstory
 - Freeform notes
-- Responsive UI: bottom navigation on phones, side `NavigationRail` on wide/desktop screens — same widgets, same data, no duplicated logic
-- PDF, URL and JSON import through a shared Import Manager
-- Local Content Library for items, spells, abilities and other content
-- JSON / `.dndhub` export and import
+
+#### Import, export and local content
+
+- PDF character sheet import
+- URL character sheet import
+- JSON import/export
+- Portable `.dndhub` data format
+- Import preview before applying imported data
+- Local content library for items, spells, abilities and other content
 - Full local backup / restore
+
+#### Campaigns
+
+- Create and edit campaigns
+- One campaign has exactly one GM
+- Add and remove campaign participants
+- Change participant roles between GM and Player
+- Rename participants
+- Link a character to a campaign participant
+- One character can be linked to multiple campaigns
+- Removing a campaign or participant does not delete the linked character
+
+#### XP system
+
+- XP stored directly on the character
+- Automatic level calculation from XP
+- Progress toward the next level
+- Add or subtract XP
+- XP change history with transaction records
+- XP remains independent from the campaign and can be used across multiple campaigns
+
+#### Platform and UI
+
+- Windows desktop
+- Android
+- Responsive UI: bottom navigation on phones and side `NavigationRail` on wider screens
+- Shared widgets and data model across supported platforms
 
 ### Tech stack
 
 - **Client:** Flutter / Dart
-- **Local storage:** SQLite (`sqflite` + `sqflite_common_ffi` for Windows)
+- **Local storage:** SQLite (`sqflite` + `sqflite_common_ffi` for desktop)
 - **State management:** Provider
-- **Architecture:** layered — `presentation/` (screens, widgets) → `domain/` (providers) → `data/` (repositories, models, database)
+- **Import:** PDF/AcroForm analysis, local OCR and URL/HTML extraction
+- **Architecture:** layered — `presentation/` → `domain/` → `data/`
+
+The project is structured so that UI, application logic and persistence remain separated as the feature set grows.
 
 ### Screenshots
 
@@ -94,20 +138,34 @@ Core principle: **local-first**. No account, no server, no mandatory internet co
 Requires Flutter SDK `>=3.3.0`.
 
 ```bash
-cd client
-flutter pub get  
-flutter run -d windows   # or: flutter run -d chrome / an Android device / emulator
+git clone https://github.com/MazZzoxa/dnd-hub.git
+cd dnd-hub/client
+
+flutter pub get
+flutter run -d windows
+```
+
+For Android, connect a device or start an emulator and run:
+
+```bash
+flutter run
+```
+
+Build a release APK:
+
+```bash
+flutter build apk --release
 ```
 
 ### Roadmap — English
 
-The project follows a **local-first → library → campaign → GM → sync → battle** progression, so every released version stays a working product on its own.
+The project follows a **local-first → library → campaign → GM → sync → battle** progression, so each released stage remains a working product on its own.
 
 | Version | Milestone |
 |---|---|
 | **v0.1** ✅ | Local character client |
 | **v0.2** ✅ | Import / export, local content library, backup / restore |
-| v0.3 | Campaigns, full XP system |
+| **v0.3** ✅ | Campaigns, participants, character linking, XP system |
 | v0.4 | GM mode |
 | v0.5 | Local GM server + real-time sync |
 | v0.6 | Battle mode |
@@ -115,7 +173,7 @@ The project follows a **local-first → library → campaign → GM → sync →
 | v1.0 | Complete core product |
 | v1.1+ | World system, AI assistant, AI GM |
 
-Full detailed design document (in Russian): [`docs/D&D Hub.md`](docs/D&D%20Hub.md).
+Full detailed design document (in Russian): [`docs/D&D Hub.md`](docs/D%26D%20Hub.md).
 
 ### License
 
@@ -125,48 +183,105 @@ Full detailed design document (in Russian): [`docs/D&D Hub.md`](docs/D&D%20Hub.m
 
 ## 🎲 D&D Hub
 
-Кроссплатформенный **local-first** менеджер персонажей D&D на Flutter — быстрый офлайн цифровой лист персонажа для использования прямо во время игровой сессии.
+Кроссплатформенный **local-first** менеджер персонажей и кампаний D&D на Flutter — быстрый офлайн-инструмент для использования прямо во время игровой сессии.
 
-**Статус:** `v0.2` — импорт/экспорт, локальная библиотека контента, backup/restore (см. [Roadmap](#roadmap--русский)).
+**Статус:** `v0.3.0` — кампании, участники, привязка персонажей, система опыта и история XP.
 
 ### О проекте
 
 D&D Hub заменяет бумажный (или неудобный электронный) лист персонажа современным интерактивным инструментом, которым удобно пользоваться прямо за столом во время сессии.
 
-Главный принцип — **local-first**: без аккаунта, без сервера, без обязательного интернета. Все данные персонажа хранятся локально в SQLite. Синхронизация и совместная игра (Campaign/GM) запланированы на будущие версии поверх надёжного офлайн-фундамента, а не как обязательное требование.
+Главный принцип — **local-first**:
 
-### Возможности (v0.2)
+- аккаунт не требуется;
+- сервер не требуется;
+- интернет не обязателен;
+- данные персонажей, кампаний и прогрессии хранятся локально в SQLite.
+
+Проект развивается поэтапно: управление персонажем → импорт/экспорт и локальная библиотека → кампании → инструменты GM → синхронизация → боевые и игровые инструменты.
+
+### Возможности (v0.3)
+
+#### Персонажи
 
 - Профиль персонажа: раса, класс, подкласс, предыстория, мировоззрение, уровень
 - 6 базовых характеристик с модификаторами
 - Боевые параметры: HP / временные HP, КД, инициатива, скорость, бонус мастерства
-- Быстрые +/- регуляторы для HP, золота, опыта — того, что меняется чаще всего во время игры
-- Инвентарь (оружие, броня, прочие предметы)
-- Заклинания с ячейками по уровням и списком известных
+- Быстрые +/- изменения HP, золота и XP
+- Инвентарь: оружие, броня и прочие предметы
+- Заклинания с ячейками по уровням и списком заклинаний
 - Способности и атаки
-- Био (внешность, черты характера, идеалы, привязанности, слабости, предыстория)
+- Био: внешность, черты характера, идеалы, привязанности, слабости и предыстория
 - Свободные заметки
-- Адаптивный интерфейс: нижняя навигация на телефоне, боковая `NavigationRail` на широких/десктопных экранах — одни и те же виджеты и данные, без дублирования логики
+
+#### Импорт, экспорт и локальная библиотека
+
+- Импорт персонажей из PDF
+- Импорт персонажей по URL
+- JSON импорт/экспорт
+- Переносимый формат `.dndhub`
+- Превью импортируемых данных перед применением
+- Локальная библиотека предметов, заклинаний, способностей и другого контента
+- Полный локальный backup / restore
+
+#### Кампании
+
+- Создание и редактирование кампаний
+- В каждой кампании ровно один GM
+- Добавление и удаление участников
+- Смена роли GM / Player
+- Переименование участников
+- Привязка персонажа к участнику кампании
+- Один персонаж может участвовать в нескольких кампаниях
+- Удаление кампании или участника не удаляет самого персонажа
+
+#### Система опыта
+
+- XP хранится у персонажа
+- Уровень автоматически определяется по XP
+- Отображение прогресса до следующего уровня
+- Добавление и уменьшение XP
+- История изменений XP
+- Изменения XP сохраняются как отдельные транзакции
+- XP не зависит от конкретной кампании и может использоваться в нескольких кампаниях
+
+#### Платформы и интерфейс
+
+- Windows
+- Android
+- Адаптивный интерфейс: нижняя навигация на телефонах и боковой `NavigationRail` на широких экранах
+- Общие виджеты и модель данных для поддерживаемых платформ
 
 ### Стек технологий
 
 - **Клиент:** Flutter / Dart
-- **Локальное хранилище:** SQLite (`sqflite` + `sqflite_common_ffi` для Windows)
+- **Локальное хранилище:** SQLite (`sqflite` + `sqflite_common_ffi` для desktop)
 - **State management:** Provider
-- **Архитектура:** слоями — `presentation/` (экраны, виджеты) → `domain/` (providers) → `data/` (repositories, models, database)
-
-### Скриншоты
-
-См. таблицы со скриншотами выше — они одинаковы для обеих версий README.
+- **Импорт:** анализ PDF/AcroForm, локальный OCR и извлечение данных из URL/HTML
+- **Архитектура:** слоями — `presentation/` → `domain/` → `data/`
 
 ### Запуск проекта
 
 Требуется Flutter SDK `>=3.3.0`.
 
 ```bash
-cd client
-flutter pub get  
-flutter run -d windows   # или: flutter run -d chrome / устройство Android
+git clone https://github.com/MazZzoxa/dnd-hub.git
+cd dnd-hub/client
+
+flutter pub get
+flutter run -d windows
+```
+
+Для Android:
+
+```bash
+flutter run
+```
+
+Сборка release APK:
+
+```bash
+flutter build apk --release
 ```
 
 ### Roadmap — Русский
@@ -177,7 +292,7 @@ flutter run -d windows   # или: flutter run -d chrome / устройство 
 |---|---|
 | **v0.1** ✅ | Локальный клиент персонажа |
 | **v0.2** ✅ | Импорт/экспорт, локальная библиотека контента, backup / restore |
-| v0.3 | Кампании, полноценная система опыта |
+| **v0.3** ✅ | Кампании, участники, привязка персонажей, система XP |
 | v0.4 | Режим GM |
 | v0.5 | Локальный GM-сервер + синхронизация в реальном времени |
 | v0.6 | Боевой режим |
@@ -185,7 +300,7 @@ flutter run -d windows   # или: flutter run -d chrome / устройство 
 | v1.0 | Завершённый базовый продукт |
 | v1.1+ | Мир кампании, AI-ассистент, AI GM |
 
-Полный подробный план разработки: [`docs/D&D Hub.md`](docs/D&D%20Hub.md).
+Полный подробный план разработки: [`docs/D&D Hub.md`](docs/D%26D%20Hub.md).
 
 ### Лицензия
 

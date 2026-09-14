@@ -2,6 +2,9 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/models/character_model.dart';
 import '../../data/repositories/character_repository.dart';
+import '../xp/xp_service.dart';
+import '../xp/xp_level_table.dart';
+import '../xp/xp_level_table.dart';
 
 /// Хранит список персонажей и текущего выбранного персонажа.
 /// Инкапсулирует все быстрые изменения (HP / XP / Gold / владения /
@@ -9,6 +12,7 @@ import '../../data/repositories/character_repository.dart';
 /// быстро во время сессии (см. п.15 ТЗ).
 class CharacterProvider extends ChangeNotifier {
   final CharacterRepository _repository = CharacterRepository();
+  final XpService _xpService = XpService();
 
   List<CharacterModel> _characters = [];
   CharacterModel? _selected;
@@ -37,8 +41,9 @@ class CharacterProvider extends ChangeNotifier {
   }
 
   Future<CharacterModel> createCharacter(CharacterModel character) async {
-    final id = await _repository.create(character);
-    final created = character.copyWith(id: id);
+    final normalized = character.copyWith(level: XpLevelTable.levelForXp(character.xp));
+    final id = await _repository.create(normalized);
+    final created = normalized.copyWith(id: id);
     _characters.add(created);
     _selected = created;
     notifyListeners();
@@ -46,10 +51,11 @@ class CharacterProvider extends ChangeNotifier {
   }
 
   Future<void> updateCharacter(CharacterModel character) async {
-    await _repository.update(character);
-    _replaceInList(character);
-    if (_selected?.id == character.id) {
-      _selected = character;
+    final normalized = character.copyWith(level: XpLevelTable.levelForXp(character.xp));
+    await _repository.update(normalized);
+    _replaceInList(normalized);
+    if (_selected?.id == normalized.id) {
+      _selected = normalized;
     }
     notifyListeners();
   }
@@ -85,11 +91,16 @@ class CharacterProvider extends ChangeNotifier {
     await updateCharacter(c.copyWith(temporaryHp: value < 0 ? 0 : value));
   }
 
-  Future<void> adjustXp(int delta) async {
+  Future<void> adjustXp(int delta, {String reason = ''}) async {
     final c = _selected;
-    if (c == null) return;
-    final newXp = (c.xp + delta).clamp(0, 1 << 30);
-    await updateCharacter(c.copyWith(xp: newXp));
+    if (c == null || delta == 0) return;
+    final int newXp = (c.xp + delta).clamp(0, 1 << 30).toInt();
+    if (newXp == c.xp) return;
+    final transaction = await _xpService.change(c, delta, reason: reason);
+    final updated = c.copyWith(xp: transaction.xpAfter, level: transaction.levelAfter);
+    _replaceInList(updated);
+    _selected = updated;
+    notifyListeners();
   }
 
   Future<void> adjustGold(int delta) async {

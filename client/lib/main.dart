@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import 'core/theme/app_theme.dart';
 import 'domain/providers/ability_provider.dart';
+import 'domain/providers/campaign_provider.dart';
+import 'domain/providers/xp_provider.dart';
 import 'domain/providers/attack_provider.dart';
 import 'domain/providers/character_provider.dart';
 import 'domain/providers/inventory_provider.dart';
@@ -32,6 +34,8 @@ class DndHubApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AttackProvider()),
         ChangeNotifierProvider(create: (_) => NoteProvider()),
         ChangeNotifierProvider(create: (_) => LibraryProvider()),
+        ChangeNotifierProvider(create: (_) => CampaignProvider()),
+        ChangeNotifierProvider(create: (_) => XpProvider()),
       ],
       child: MaterialApp(
         title: 'D&D Hub',

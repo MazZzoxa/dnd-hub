@@ -2400,3 +2400,17 @@ docs/
 # 76. Главная идея проекта
 
 > **D&D Hub — local-first кроссплатформенное приложение для Android и PC, которое превращает лист персонажа D&D в быстрый интерактивный инструмент с локальным хранением, собственной библиотекой пользовательского контента, импортом и экспортом данных, а в дальнейшем — в полноценную систему кампаний, GM, боёв и синхронизации игроков.**
+
+## v0.3 — Campaigns, participants and XP
+
+Rules frozen for v0.3:
+- One character may be linked to multiple campaigns.
+- Every campaign has exactly one GM.
+- Deleting a campaign deletes only campaign membership rows; linked characters remain.
+- XP belongs to the character, while XP changes are stored as transactions.
+- Level is derived from XP and is not edited independently in the UI.
+- v0.3 remains fully local/offline; GM dashboard, server, sync, battle mode and session tools are deferred.
+
+### Реализация v0.3
+
+Схема SQLite поднята до версии 6. Добавлены `campaigns`, `campaign_members` и `xp_transactions`; формат portable backup поднят до v2. Для v0.2 персонажей при миграции уровень нормализуется по накопленному XP без генерации искусственной истории XP.

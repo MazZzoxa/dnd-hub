@@ -7,6 +7,11 @@ import '../../../data/models/attack_model.dart';
 import '../../../data/models/character_model.dart';
 import '../../../domain/providers/attack_provider.dart';
 import '../../../domain/providers/character_provider.dart';
+import '../../../domain/providers/xp_provider.dart';
+import '../../../domain/xp/xp_service.dart';
+import '../../widgets/xp_progress_card.dart';
+import '../../widgets/xp_history_sheet.dart';
+import '../../widgets/character_campaigns_card.dart';
 import '../../widgets/quick_adjust_card.dart';
 import '../../widgets/stat_box.dart';
 
@@ -47,6 +52,8 @@ class _OverviewSectionState extends State<OverviewSection> {
           padding: const EdgeInsets.all(16),
           children: [
             _HeaderCard(character: character),
+            const SizedBox(height: 10),
+            CharacterCampaignsCard(characterId: character.id!),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -141,21 +148,59 @@ class _OverviewSectionState extends State<OverviewSection> {
               ),
             ),
             const SizedBox(height: 10),
-            QuickAdjustCard(
-              label: 'Опыт',
-              icon: Icons.star,
-              accentColor: AppTheme.accent,
-              valueText: '${character.xp}',
-              step: 10,
-              onAdjust: (delta) => provider.adjustXp(delta),
-              onTapValue: () => _showAdjustDialog(
-                context,
-                title: 'Изменить опыт',
-                initial: character.xp,
-                onSubmit: (value) =>
-                    provider.updateCharacter(character.copyWith(xp: value)),
-              ),
-            ),
+            Builder(builder: (context) {
+              final progress = XpService().progress(character);
+              final xpProvider = context.watch<XpProvider>();
+              if (!xpProvider.loading && xpProvider.history.isEmpty) {
+                WidgetsBinding.instance.addPostFrameCallback((_) => xpProvider.loadHistory(character.id!));
+              }
+              return Column(children: [
+                XpProgressCard(
+                  progress: progress,
+                  onHistory: () async {
+                    await xpProvider.loadHistory(character.id!);
+                    if (!context.mounted) return;
+                    await showXpHistorySheet(context, xpProvider.history);
+                  },
+                ),
+                const SizedBox(height: 10),
+                QuickAdjustCard(
+                  label: 'Опыт',
+                  icon: Icons.star,
+                  accentColor: AppTheme.accent,
+                  valueText: '${character.xp}',
+                  step: 10,
+                  onAdjust: (delta) async {
+                    await provider.adjustXp(delta);
+                    await xpProvider.refresh();
+                  },
+                  onTapValue: () async {
+                    final controller = TextEditingController(text: '${character.xp}');
+                    final reason = TextEditingController();
+                    final result = await showDialog<(int, String)?>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Изменить опыт'),
+                        content: SizedBox(width: 360, child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          TextField(controller: controller, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Новый XP')),
+                          const SizedBox(height: 12),
+                          TextField(controller: reason, maxLines: 2, decoration: const InputDecoration(labelText: 'Причина (необязательно)')),
+                        ])),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')),
+                          FilledButton(onPressed: () { final value = int.tryParse(controller.text); if (value != null && value >= 0) Navigator.pop(context, (value, reason.text)); }, child: const Text('Сохранить')),
+                        ],
+                      ),
+                    );
+                    controller.dispose();
+                    reason.dispose();
+                    if (result == null) return;
+                    await provider.adjustXp(result.$1 - character.xp, reason: result.$2);
+                    await xpProvider.refresh();
+                  },
+                ),
+              ]);
+            }),
             const SizedBox(height: 20),
             const _SectionLabel('Характеристики'),
             const SizedBox(height: 10),

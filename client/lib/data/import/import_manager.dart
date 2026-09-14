@@ -12,6 +12,7 @@ import '../models/library_item_model.dart';
 import '../models/note_model.dart';
 import '../models/spell_model.dart';
 import '../models/spell_slot_model.dart';
+import '../../domain/xp/xp_level_table.dart';
 import 'models/pdf_import_draft.dart';
 import 'pdf/pdf_importer.dart';
 import 'url/url_importer.dart';
@@ -23,7 +24,7 @@ import 'url/url_importer.dart';
 /// пайплайн (см. [PdfImportDraft], docs/PDF Importer.md, п.6 "Next steps").
 class ImportManager {
   static const String schema = 'dnd-hub';
-  static const int supportedFormatVersion = 1;
+  static const int supportedFormatVersion = 2;
 
   final DatabaseHelper _db = DatabaseHelper.instance;
 
@@ -358,6 +359,7 @@ class ImportManager {
     final db = await _db.database;
     return db.transaction((txn) async {
       final characterRow = draft.character.toMap()..remove('id');
+      characterRow['level'] = XpLevelTable.levelForXp((characterRow['xp'] as int?) ?? 0);
       final characterId = await txn.insert('characters', characterRow);
 
       for (final attack in draft.attacks) {
@@ -548,6 +550,9 @@ class ImportManager {
             'Заметки': _asList(data['notes']).length,
             'Атаки': _asList(data['attacks']).length,
             'Ячейки заклинаний': _asList(data['spellSlots']).length,
+            'Кампании': _asList(data['campaigns']).length,
+            'Участники кампаний': _asList(data['campaignMembers']).length,
+            'Операции XP': _asList(data['xpTransactions']).length,
           },
           warnings: const [
             'Восстановление полностью заменит текущие локальные данные D&D Hub.',
@@ -776,6 +781,9 @@ class ImportManager {
       'notes',
       'attacks',
       'spellSlots',
+      'campaigns',
+      'campaignMembers',
+      'xpTransactions',
     ];
     for (final table in requiredTables) {
       final value = data[table];
@@ -788,6 +796,9 @@ class ImportManager {
     await db.transaction((txn) async {
       // Сначала удаляем дочерние записи, чтобы соблюсти foreign keys.
       for (final table in const [
+        'xp_transactions',
+        'campaign_members',
+        'campaigns',
         'spell_slots',
         'attacks',
         'notes',
@@ -801,13 +812,22 @@ class ImportManager {
       }
 
       await _insertRows(txn, 'library_items', _asList(data['libraryItems']));
-      await _insertRows(txn, 'characters', _asList(data['characters']));
+      for (final raw in _asList(data['characters'])) {
+        final map = _normalizeMap(raw);
+        final xp = _asInt(map['xp']) ?? 0;
+        map['xp'] = xp.clamp(0, 1 << 30).toInt();
+        map['level'] = XpLevelTable.levelForXp(map['xp'] as int);
+        await txn.insert('characters', map);
+      }
       await _insertRows(txn, 'items', _asList(data['items']));
       await _insertRows(txn, 'spells', _asList(data['spells']));
       await _insertRows(txn, 'abilities', _asList(data['abilities']));
       await _insertRows(txn, 'notes', _asList(data['notes']));
       await _insertRows(txn, 'attacks', _asList(data['attacks']));
       await _insertRows(txn, 'spell_slots', _asList(data['spellSlots']));
+      await _insertRows(txn, 'campaigns', _asList(data['campaigns']));
+      await _insertRows(txn, 'campaign_members', _asList(data['campaignMembers']));
+      await _insertRows(txn, 'xp_transactions', _asList(data['xpTransactions']));
     });
 
     return const ImportResult(
@@ -842,6 +862,7 @@ class ImportManager {
     return db.transaction((txn) async {
       final character = CharacterModel.fromMap(characterMap);
       final characterRow = character.toMap()..remove('id');
+      characterRow['level'] = XpLevelTable.levelForXp(character.xp);
       final newCharacterId = await txn.insert('characters', characterRow);
 
       final libraryIdMap = <int, int>{};
@@ -900,6 +921,13 @@ class ImportManager {
         map['character_id'] = newCharacterId;
         final slot = SpellSlotModel.fromMap(map);
         await txn.insert('spell_slots', slot.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+
+      for (final raw in _asList(payload['xpHistory'])) {
+        final map = _normalizeMap(raw);
+        map['character_id'] = newCharacterId;
+        map.remove('id');
+        await txn.insert('xp_transactions', map);
       }
 
       return ImportResult(

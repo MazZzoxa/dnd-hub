@@ -142,7 +142,7 @@ class _CharacterFormScreenState extends State<CharacterFormScreen> {
             _SectionHeader('Основное'),
             _field(_name, 'Имя', required: true),
             _row([_field(_race, 'Раса'), _field(_className, 'Класс')]),
-            _row([_field(_subclass, 'Подкласс'), _field(_level, 'Уровень', numeric: true)]),
+            _row([_field(_subclass, 'Подкласс'), _levelDisplay()]),
             _field(_background, 'Предыстория'),
             _row([_field(_alignment, 'Мировоззрение'), _field(_playerName, 'Имя игрока')]),
             const SizedBox(height: 20),
@@ -187,6 +187,15 @@ class _CharacterFormScreenState extends State<CharacterFormScreen> {
       ),
     );
   }
+
+  Widget _levelDisplay() => TextField(
+        controller: _level,
+        readOnly: true,
+        decoration: const InputDecoration(
+          labelText: 'Уровень',
+          helperText: 'Рассчитывается из XP',
+        ),
+      );
 
   Widget _row(List<Widget> children) {
     return Row(

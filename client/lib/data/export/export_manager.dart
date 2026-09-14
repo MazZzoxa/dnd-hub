@@ -17,7 +17,7 @@ import '../models/library_item_model.dart';
 /// Благодаря этому файл остаётся читаемым человеком, легко валидируется и
 /// в будущем может быть использован тем же ImportManager.
 class ExportManager {
-  static const int formatVersion = 1;
+  static const int formatVersion = 2;
   static const String schema = 'dnd-hub';
 
   final DatabaseHelper _db = DatabaseHelper.instance;
@@ -73,6 +73,7 @@ class ExportManager {
       'attacks': attackRows.map(_cleanDbMap).toList(),
       'spellSlots': slotRows.map(_cleanDbMap).toList(),
       'notes': noteRows.map(_cleanDbMap).toList(),
+      'xpHistory': (await db.query('xp_transactions', where: 'character_id = ?', whereArgs: [id], orderBy: 'created_at DESC, id DESC')).map(_cleanDbMap).toList(),
       'libraryItems': libraryItems.map(_libraryMap).toList(),
     };
 
@@ -116,6 +117,9 @@ class ExportManager {
       'notes': await db.query('notes', orderBy: 'id'),
       'attacks': await db.query('attacks', orderBy: 'id'),
       'spellSlots': await db.query('spell_slots', orderBy: 'character_id, level'),
+      'campaigns': await db.query('campaigns', orderBy: 'id'),
+      'campaignMembers': await db.query('campaign_members', orderBy: 'id'),
+      'xpTransactions': await db.query('xp_transactions', orderBy: 'character_id, created_at, id'),
     };
 
     final payload = <String, dynamic>{
@@ -123,7 +127,7 @@ class ExportManager {
       'formatVersion': formatVersion,
       'exportType': 'backup',
       'exportedAt': DateTime.now().toUtc().toIso8601String(),
-      'databaseVersion': 5,
+      'databaseVersion': 6,
       'sections': [
         'characters',
         'libraryItems',
@@ -133,6 +137,9 @@ class ExportManager {
         'notes',
         'attacks',
         'spellSlots',
+        'campaigns',
+        'campaignMembers',
+        'xpTransactions',
       ],
       'data': tables,
     };
