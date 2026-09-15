@@ -12,6 +12,7 @@ import '../models/library_item_model.dart';
 import '../models/note_model.dart';
 import '../models/spell_model.dart';
 import '../models/spell_slot_model.dart';
+import '../models/xp_transaction_model.dart';
 import '../../domain/xp/xp_level_table.dart';
 import 'models/pdf_import_draft.dart';
 import 'pdf/pdf_importer.dart';
@@ -923,11 +924,23 @@ class ImportManager {
         await txn.insert('spell_slots', slot.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
       }
 
+      // Character exports carry their XP history. Rebuild each record for the
+      // newly imported character instead of blindly inserting the raw JSON map.
+      // This keeps snake_case DB fields canonical, ignores the old transaction
+      // id, and tolerates exports that omit optional reason text.
       for (final raw in _asList(payload['xpHistory'])) {
-        final map = _normalizeMap(raw);
-        map['character_id'] = newCharacterId;
-        map.remove('id');
-        await txn.insert('xp_transactions', map);
+        final source = _normalizeMap(raw);
+        final transaction = XpTransactionModel(
+          characterId: newCharacterId,
+          delta: _asInt(source['delta']) ?? 0,
+          xpBefore: _asInt(source['xp_before']) ?? _asInt(source['xpBefore']) ?? 0,
+          xpAfter: _asInt(source['xp_after']) ?? _asInt(source['xpAfter']) ?? 0,
+          levelBefore: _asInt(source['level_before']) ?? _asInt(source['levelBefore']) ?? 1,
+          levelAfter: _asInt(source['level_after']) ?? _asInt(source['levelAfter']) ?? 1,
+          reason: source['reason']?.toString() ?? '',
+          createdAt: DateTime.tryParse(source['created_at']?.toString() ?? source['createdAt']?.toString() ?? '')?.toUtc() ?? DateTime.now().toUtc(),
+        );
+        await txn.insert('xp_transactions', transaction.toMap()..remove('id'));
       }
 
       return ImportResult(
