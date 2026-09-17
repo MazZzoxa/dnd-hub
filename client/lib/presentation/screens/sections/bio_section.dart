@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -55,6 +59,74 @@ class _BioSectionState extends State<BioSection> {
     _initializedForId = c.id;
   }
 
+  Future<void> _pickBioImage(BuildContext context, CharacterModel current) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.single;
+      final Uint8List? bytes = file.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось прочитать изображение.')),
+        );
+        return;
+      }
+
+      const maxBytes = 8 * 1024 * 1024;
+      if (bytes.length > maxBytes) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Изображение слишком большое. Максимальный размер — 8 МБ.')),
+        );
+        return;
+      }
+
+      await context.read<CharacterProvider>().updateCharacter(
+        current.copyWith(bioImageBase64: base64Encode(bytes)),
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Изображение добавлено в био.')),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось добавить изображение: $error')),
+      );
+    }
+  }
+
+  Future<void> _removeBioImage(BuildContext context, CharacterModel current) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Удалить изображение?'),
+        content: const Text('Изображение будет удалено из био персонажа.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Удалить'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    await context.read<CharacterProvider>().updateCharacter(
+      current.copyWith(bioImageBase64: ''),
+    );
+  }
+
   Future<void> _save(BuildContext context, CharacterModel current) async {
     final updated = current.copyWith(
       personalityTraits: _personalityTraits.text.trim(),
@@ -95,6 +167,16 @@ class _BioSectionState extends State<BioSection> {
         ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
           children: [
+            const _SectionLabel('Изображение персонажа'),
+            const SizedBox(height: 10),
+            _BioImageCard(
+              character: character,
+              onPick: () => _pickBioImage(context, character),
+              onRemove: character.bioImageBase64.isEmpty
+                  ? null
+                  : () => _removeBioImage(context, character),
+            ),
+            const SizedBox(height: 16),
             const _SectionLabel('Внешность'),
             const SizedBox(height: 10),
             _row([_field(_age, 'Возраст'), _field(_height, 'Рост')]),
@@ -157,6 +239,91 @@ class _BioSectionState extends State<BioSection> {
         controller: controller,
         maxLines: maxLines,
         decoration: InputDecoration(labelText: label),
+      ),
+    );
+  }
+}
+
+class _BioImageCard extends StatelessWidget {
+  final CharacterModel character;
+  final VoidCallback onPick;
+  final VoidCallback? onRemove;
+
+  const _BioImageCard({
+    required this.character,
+    required this.onPick,
+    required this.onRemove,
+  });
+
+  Uint8List? _bytes() {
+    if (character.bioImageBase64.trim().isEmpty) return null;
+    try {
+      return base64Decode(character.bioImageBase64);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bytes = _bytes();
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              height: 260,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: bytes == null
+                    ? Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.image_outlined, size: 38, color: AppTheme.textSecondary),
+                          const SizedBox(height: 8),
+                          const Text('Изображение не добавлено', style: TextStyle(color: AppTheme.textSecondary)),
+                        ],
+                      )
+                    : ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.memory(
+                          bytes,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Center(
+                            child: Text('Не удалось отобразить изображение', style: TextStyle(color: AppTheme.textSecondary)),
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: onPick,
+                    icon: const Icon(Icons.upload_file_outlined),
+                    label: Text(bytes == null ? 'Добавить изображение' : 'Заменить'),
+                  ),
+                ),
+                if (onRemove != null) ...[
+                  const SizedBox(width: 10),
+                  IconButton(
+                    tooltip: 'Удалить изображение',
+                    onPressed: onRemove,
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

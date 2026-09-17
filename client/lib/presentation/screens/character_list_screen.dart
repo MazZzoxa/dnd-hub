@@ -12,6 +12,7 @@ import '../../domain/providers/character_provider.dart';
 import '../../data/export/export_manager.dart';
 import '../../data/import/import_manager.dart';
 import '../widgets/export_format_dialog.dart';
+import '../widgets/character_avatar.dart';
 import 'character_form_screen.dart';
 import 'character_home_screen.dart';
 import 'library_screen.dart';
@@ -299,14 +300,9 @@ class _CharacterCard extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              CircleAvatar(
+              CharacterAvatar(
+                character: character,
                 radius: 24,
-                backgroundColor: AppTheme.primary.withOpacity(0.2),
-                child: Text(
-                  character.name.isNotEmpty ? character.name[0].toUpperCase() : '?',
-                  style: const TextStyle(
-                      color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: 18),
-                ),
               ),
               const SizedBox(width: 14),
               Expanded(

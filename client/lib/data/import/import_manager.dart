@@ -784,6 +784,7 @@ class ImportManager {
       'spellSlots',
       'campaigns',
       'campaignMembers',
+      'campaignSessions',
       'xpTransactions',
     ];
     for (final table in requiredTables) {
@@ -798,6 +799,7 @@ class ImportManager {
       // Сначала удаляем дочерние записи, чтобы соблюсти foreign keys.
       for (final table in const [
         'xp_transactions',
+        'campaign_sessions',
         'campaign_members',
         'campaigns',
         'spell_slots',
@@ -828,6 +830,7 @@ class ImportManager {
       await _insertRows(txn, 'spell_slots', _asList(data['spellSlots']));
       await _insertRows(txn, 'campaigns', _asList(data['campaigns']));
       await _insertRows(txn, 'campaign_members', _asList(data['campaignMembers']));
+      await _insertRows(txn, 'campaign_sessions', _asList(data['campaignSessions']));
       await _insertRows(txn, 'xp_transactions', _asList(data['xpTransactions']));
     });
 

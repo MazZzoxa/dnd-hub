@@ -20,7 +20,9 @@ class AppTheme {
       scaffoldBackgroundColor: background,
       colorScheme: base.colorScheme.copyWith(
         primary: primary,
+        onPrimary: Colors.white,
         secondary: accent,
+        onSecondary: Colors.white,
         surface: surface,
         error: danger,
       ),

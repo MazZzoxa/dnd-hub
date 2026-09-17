@@ -28,7 +28,8 @@ class DatabaseHelper {
   // v5: добавлено поле source_url (ссылка на источник/книгу/страницу) в
   // items/spells/abilities — по образцу одноимённого поля library_items,
   // но заполняется отдельно при создании прямо на листе персонажа.
-  static const _dbVersion = 6;
+  // v8: добавлено изображение био персонажа (base64 в локальной SQLite).
+  static const _dbVersion = 8;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -77,6 +78,17 @@ class DatabaseHelper {
 
   Future<void> _onOpen(Database db) async {
     await _ensureV03Schema(db);
+    await _ensureBioImageColumn(db);
+  }
+
+  Future<void> _ensureBioImageColumn(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(characters)');
+    final hasBioImage = columns.any((row) => row['name'] == 'bio_image');
+    if (!hasBioImage) {
+      await db.execute(
+        "ALTER TABLE characters ADD COLUMN bio_image TEXT NOT NULL DEFAULT ''",
+      );
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -131,7 +143,8 @@ class DatabaseHelper {
         hair TEXT NOT NULL DEFAULT '',
         backstory TEXT NOT NULL DEFAULT '',
         allies_organizations TEXT NOT NULL DEFAULT '',
-        treasure TEXT NOT NULL DEFAULT ''
+        treasure TEXT NOT NULL DEFAULT '',
+        bio_image TEXT NOT NULL DEFAULT ''
       )
     ''');
 
@@ -257,6 +270,24 @@ class DatabaseHelper {
     await db.execute('CREATE UNIQUE INDEX idx_campaign_character_once ON campaign_members(campaign_id, linked_character_id) WHERE linked_character_id IS NOT NULL');
 
     await db.execute('''
+      CREATE TABLE campaign_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_id INTEGER NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL CHECK (status IN ('planned', 'active', 'completed')),
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        ended_at TEXT,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_campaign_sessions_campaign ON campaign_sessions(campaign_id)');
+    await db.execute('CREATE INDEX idx_campaign_sessions_status ON campaign_sessions(campaign_id, status)');
+    await db.execute("CREATE UNIQUE INDEX idx_campaign_one_active_session ON campaign_sessions(campaign_id) WHERE status = 'active'");
+
+    await db.execute('''
       CREATE TABLE xp_transactions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         character_id INTEGER NOT NULL,
@@ -285,8 +316,8 @@ class DatabaseHelper {
   }
 
 
-  /// Ensures the v0.3 tables exist even when a database reports version 6
-  /// but was produced by a partially applied v0.3 migration. All statements
+  /// Ensures the current campaign/XP/session tables exist even when a database
+  /// reports the expected version but was produced by a partially applied migration. All statements
   /// are idempotent.
   Future<void> _ensureV03Schema(Database db) async {
     await db.execute('''
@@ -319,6 +350,24 @@ class DatabaseHelper {
     await db.execute(
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_campaign_character_once ON campaign_members(campaign_id, linked_character_id) WHERE linked_character_id IS NOT NULL',
     );
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS campaign_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_id INTEGER NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL CHECK (status IN ('planned', 'active', 'completed')),
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        ended_at TEXT,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_campaign_sessions_campaign ON campaign_sessions(campaign_id)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_campaign_sessions_status ON campaign_sessions(campaign_id, status)');
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_campaign_one_active_session ON campaign_sessions(campaign_id) WHERE status = 'active'");
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS xp_transactions (
@@ -507,6 +556,32 @@ class DatabaseHelper {
         }
         await db.update('characters', {'xp': xp, 'level': level}, where: 'id = ?', whereArgs: [row['id']]);
       }
+    }
+
+    if (oldVersion < 7) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS campaign_sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          campaign_id INTEGER NOT NULL,
+          title TEXT NOT NULL DEFAULT '',
+          notes TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL CHECK (status IN ('planned', 'active', 'completed')),
+          created_at TEXT NOT NULL,
+          started_at TEXT,
+          ended_at TEXT,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE
+        )
+      ''');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_campaign_sessions_campaign ON campaign_sessions(campaign_id)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_campaign_sessions_status ON campaign_sessions(campaign_id, status)');
+      await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_campaign_one_active_session ON campaign_sessions(campaign_id) WHERE status = 'active'");
+    }
+
+    if (oldVersion < 8) {
+      await db.execute(
+        "ALTER TABLE characters ADD COLUMN bio_image TEXT NOT NULL DEFAULT ''",
+      );
     }
   }
 

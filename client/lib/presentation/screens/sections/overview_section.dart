@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../widgets/character_avatar.dart';
 import '../../../data/constants/dnd_data.dart';
 import '../../../data/models/attack_model.dart';
 import '../../../data/models/character_model.dart';
@@ -316,14 +317,9 @@ class _HeaderCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          CircleAvatar(
+          CharacterAvatar(
+            character: character,
             radius: 28,
-            backgroundColor: AppTheme.primary.withOpacity(0.2),
-            child: Text(
-              character.name.isNotEmpty ? character.name[0].toUpperCase() : '?',
-              style: const TextStyle(
-                  color: AppTheme.primary, fontWeight: FontWeight.bold, fontSize: 22),
-            ),
           ),
           const SizedBox(width: 14),
           Expanded(

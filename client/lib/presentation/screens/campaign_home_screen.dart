@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../widgets/character_avatar.dart';
 import '../../data/models/campaign_member_model.dart';
 import '../../data/models/character_model.dart';
 import '../../domain/providers/campaign_provider.dart';
 import '../../domain/providers/character_provider.dart';
+import 'gm_dashboard_screen.dart';
 
 class CampaignHomeScreen extends StatelessWidget {
   const CampaignHomeScreen({super.key});
@@ -78,6 +80,13 @@ class CampaignHomeScreen extends StatelessWidget {
           appBar: AppBar(
             title: Text(campaign.name),
             actions: [
+              IconButton(
+                tooltip: 'Режим GM',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const GmDashboardScreen()),
+                ),
+                icon: const Icon(Icons.shield_outlined),
+              ),
               IconButton(onPressed: () => _editCampaign(context, campaigns), icon: const Icon(Icons.edit_outlined)),
               IconButton(onPressed: () => _delete(context), icon: const Icon(Icons.delete_outline)),
             ],
@@ -89,6 +98,18 @@ class CampaignHomeScreen extends StatelessWidget {
                 Text(campaign.description, style: const TextStyle(color: AppTheme.textSecondary)),
                 const SizedBox(height: 20),
               ],
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.shield_outlined, color: AppTheme.primary),
+                  title: const Text('GM Dashboard'),
+                  subtitle: const Text('Игроки, персонажи и текущая игровая сессия'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const GmDashboardScreen()),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               Row(children: [const Text('Участники', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)), const Spacer(), Text('${campaigns.members.length}'), const SizedBox(width: 10), IconButton(onPressed: () => _addPlayer(context), icon: const Icon(Icons.person_add_alt_1_outlined))]),
               const SizedBox(height: 10),
               ...campaigns.members.map((member) => _MemberCard(member: member, characters: characters.characters)),
@@ -121,7 +142,13 @@ class _MemberCard extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
         child: Row(
           children: [
-            CircleAvatar(child: Icon(member.role == CampaignRole.gm ? Icons.shield_outlined : Icons.person_outline)),
+            linked == null || member.role == CampaignRole.gm
+                ? CircleAvatar(
+                    child: Icon(member.role == CampaignRole.gm
+                        ? Icons.shield_outlined
+                        : Icons.person_outline),
+                  )
+                : CharacterAvatar(character: linked, radius: 20),
             const SizedBox(width: 12),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(member.name, style: const TextStyle(fontWeight: FontWeight.w700)), Text('${member.role.label}${linked == null ? '' : ' · ${linked.name}'}', style: const TextStyle(color: AppTheme.textSecondary))])),
             PopupMenuButton<String>(

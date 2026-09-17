@@ -12,6 +12,7 @@ import 'domain/providers/library_provider.dart';
 import 'domain/providers/note_provider.dart';
 import 'domain/providers/spell_provider.dart';
 import 'domain/providers/spell_slot_provider.dart';
+import 'domain/providers/session_provider.dart';
 import 'presentation/screens/character_list_screen.dart';
 
 void main() {
@@ -36,6 +37,7 @@ class DndHubApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => LibraryProvider()),
         ChangeNotifierProvider(create: (_) => CampaignProvider()),
         ChangeNotifierProvider(create: (_) => XpProvider()),
+        ChangeNotifierProvider(create: (_) => SessionProvider()),
       ],
       child: MaterialApp(
         title: 'D&D Hub',

@@ -70,6 +70,7 @@ class CharacterModel {
   final String backstory;
   final String alliesOrganizations;
   final String treasure;
+  final String bioImageBase64;
 
   const CharacterModel({
     this.id,
@@ -122,6 +123,7 @@ class CharacterModel {
     this.backstory = '',
     this.alliesOrganizations = '',
     this.treasure = '',
+    this.bioImageBase64 = '',
   });
 
   /// Модификатор характеристики по правилам D&D: floor((score - 10) / 2)
@@ -234,6 +236,7 @@ class CharacterModel {
     String? backstory,
     String? alliesOrganizations,
     String? treasure,
+    String? bioImageBase64,
   }) {
     return CharacterModel(
       id: id ?? this.id,
@@ -286,6 +289,7 @@ class CharacterModel {
       backstory: backstory ?? this.backstory,
       alliesOrganizations: alliesOrganizations ?? this.alliesOrganizations,
       treasure: treasure ?? this.treasure,
+      bioImageBase64: bioImageBase64 ?? this.bioImageBase64,
     );
   }
 
@@ -341,6 +345,7 @@ class CharacterModel {
       'backstory': backstory,
       'allies_organizations': alliesOrganizations,
       'treasure': treasure,
+      'bio_image': bioImageBase64,
     };
   }
 
@@ -406,6 +411,7 @@ class CharacterModel {
       backstory: map['backstory'] as String? ?? '',
       alliesOrganizations: map['allies_organizations'] as String? ?? '',
       treasure: map['treasure'] as String? ?? '',
+      bioImageBase64: map['bio_image'] as String? ?? '',
     );
   }
 }

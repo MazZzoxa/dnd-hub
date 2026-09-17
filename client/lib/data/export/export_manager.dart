@@ -119,6 +119,7 @@ class ExportManager {
       'spellSlots': await db.query('spell_slots', orderBy: 'character_id, level'),
       'campaigns': await db.query('campaigns', orderBy: 'id'),
       'campaignMembers': await db.query('campaign_members', orderBy: 'id'),
+      'campaignSessions': await db.query('campaign_sessions', orderBy: 'id'),
       'xpTransactions': await db.query('xp_transactions', orderBy: 'character_id, created_at, id'),
     };
 
@@ -127,7 +128,7 @@ class ExportManager {
       'formatVersion': formatVersion,
       'exportType': 'backup',
       'exportedAt': DateTime.now().toUtc().toIso8601String(),
-      'databaseVersion': 6,
+      'databaseVersion': 8,
       'sections': [
         'characters',
         'libraryItems',
@@ -139,6 +140,7 @@ class ExportManager {
         'spellSlots',
         'campaigns',
         'campaignMembers',
+        'campaignSessions',
         'xpTransactions',
       ],
       'data': tables,

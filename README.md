@@ -2,7 +2,8 @@
 
 A local-first, cross-platform D&D character manager built with Flutter — a fast, offline digital character sheet for use during actual game sessions.
 
-**Status:** `v0.3.1` — campaigns, participants, character linking, XP progression, XP history, and Android/import/restore fixes (see [Roadmap](#roadmap--english)).
+**Current version:** `v0.4.0`  
+**Status:** Local-first character, campaign and GM tools are implemented. Real-time synchronization and the local GM server are planned for `v0.5`.  
 **Author:** [@MazZzoxa](https://github.com/MazZzoxa)
 
 🇬🇧 [English](#-dd-hub) · 🇷🇺 [Русский](#-dd-hub-1)
@@ -13,46 +14,61 @@ A local-first, cross-platform D&D character manager built with Flutter — a fas
 
 ---
 
-## English
+## 🎲 D&D Hub
 
 ### About
 
-D&D Hub replaces the paper (or clunky digital) character sheet with a fast, interactive tool designed to be used *at the table*, during a session — not just between them.
+D&D Hub is a local-first digital D&D character manager designed to be used directly during a game session.
 
-Core principle: **local-first**. No account, no server, no mandatory internet connection. Character, campaign and progression data live on the device in a local SQLite database. Multiplayer synchronization and the GM server are planned for later versions, layered on top of the offline foundation.
+The main principle is **local-first**: no account, no server and no mandatory Internet connection are required. Character, campaign and progression data are stored locally in SQLite. Multiplayer synchronization and the GM server are deliberately kept for a later stage of the project.
 
-### Features (v0.3.1)
+### Features — v0.4.0
 
-- Character profile: race, class, subclass, background, alignment, level
+**Character management**
+
+- Character profile: race, class, subclass, background, alignment and level
 - Six core attributes with modifiers
-- Combat stats: HP / temp HP, AC, initiative, speed, proficiency bonus
-- Quick +/- adjusters for HP, gold, XP — the things that change constantly mid-session
-- Inventory (weapons, armor, misc items)
-- Spells with per-level spell slots and a spell list
-- Abilities & attacks
-- Bio (appearance, personality traits, ideals, bonds, flaws, backstory)
+- Combat stats: HP, temporary HP, AC, initiative, speed and proficiency bonus
+- Quick +/- controls for HP, gold and XP
+- Inventory: weapons, armor and miscellaneous items
+- Spells with spell slots by level
+- Abilities and attacks
 - Freeform notes
-- Responsive UI: bottom navigation on phones, side `NavigationRail` on wide/desktop screens — same widgets, same data, no duplicated logic
+- Bio with appearance, personality traits, ideals, bonds, flaws, backstory and character image
+- Circular character avatars using the Bio image while preserving image proportions and quality
+
+**Import / export and local library**
+
 - PDF, URL and JSON import through a shared Import Manager
+- Editable import preview before confirming imported data
 - Local Content Library for items, spells, abilities and other content
-- JSON / `.dndhub` export and import
+- `.dndhub` character export/import
 - Full local backup / restore
+- XP history is preserved during character export/import
+
+**Campaigns and GM Mode**
+
+- Campaign creation and management
+- Player membership and character linking
+- GM Dashboard for a selected campaign
+- Player/character overview with HP, AC and initiative
+- Read-only character sheet viewer for the GM
+- Local Session Tools with an active session, GM notes and session history
+
+**Interface**
+
+- Responsive Flutter UI
+- Bottom navigation on phones
+- Side `NavigationRail` on wide/desktop screens
+- Shared widgets and data across platforms without duplicated business logic
+- Primary orange buttons use white text and icons
 
 ### Tech stack
 
 - **Client:** Flutter / Dart
-- **Local storage:** SQLite (`sqflite` + `sqflite_common_ffi` for Windows)
+- **Local storage:** SQLite (`sqflite` + `sqflite_common_ffi` for Windows/Linux/macOS)
 - **State management:** Provider
-- **Architecture:** layered — `presentation/` (screens, widgets) → `domain/` (providers) → `data/` (repositories, models, database)
-
-### v0.3.1 maintenance release
-
-- Android database migration is repaired safely for existing installations.
-- Android backup / restore works with existing v0.3 databases.
-- Campaign navigation is available in release builds on narrow Android layouts.
-- Character `.dndhub` export / import preserves XP history.
-- Imported XP transactions are recreated for the imported character instead of reusing source transaction IDs.
-- The v0.3 feature scope remains unchanged: campaigns, participants, GM / Player roles, character linking and XP progression.
+- **Architecture:** layered — `presentation/` → `domain/` → `data/`
 
 ### Screenshots
 
@@ -64,7 +80,7 @@ Core principle: **local-first**. No account, no server, no mandatory internet co
 | **Abilities** | ![Windows abilities](screenshots/win-abilities.png) | ![Android abilities](screenshots/android-abilities.png) |
 
 <details>
-<summary>More screenshots (character list, bio, notes, settings, character form)</summary>
+<summary>More screenshots</summary>
 
 | | Windows | Android |
 |---|---|---|
@@ -76,106 +92,131 @@ Core principle: **local-first**. No account, no server, no mandatory internet co
 
 </details>
 
-### v0.2 screenshots
-
-#### Windows
-
-![Windows — character list](screenshots/v0.2/windows/character-list.png)
-
-![Windows — overview](screenshots/v0.2/windows/overview.png)
-
-![Windows — spells](screenshots/v0.2/windows/spells.png)
-
-![Windows — library](screenshots/v0.2/windows/library.png)
-
-#### Android
-
-![Android — character list](screenshots/v0.2/android/character-list.png)
-
-![Android — overview](screenshots/v0.2/android/overview.png)
-
-![Android — spells](screenshots/v0.2/android/spells.png)
-
-![Android — library](screenshots/v0.2/android/library.png)
-
 ### Getting started
 
 Requires Flutter SDK `>=3.3.0`.
 
 ```bash
 cd client
-flutter pub get   # generates pubspec.lock — commit it after this (recommended for apps)
-flutter run -d windows   # or: flutter run -d chrome / an Android device / emulator
+flutter pub get
+flutter run -d windows
 ```
 
-### Roadmap — English
+Other targets can be used with the standard Flutter commands, for example an Android device/emulator or Chrome.
 
-The project follows a **local-first → library → campaign → GM → sync → battle** progression, so every released version stays a working product on its own.
+### Building
+
+Windows debug build:
+
+```bash
+cd client
+flutter build windows --debug
+```
+
+Android release APK:
+
+```bash
+cd client
+flutter build apk --release
+```
+
+Build artifacts such as `client/build/` and Dart tool caches are ignored by Git.
+
+### Project structure
+
+```text
+client/
+├── lib/
+│   ├── core/            # Theme and shared application infrastructure
+│   ├── data/            # SQLite, repositories, models, import/export
+│   ├── domain/          # Providers and application logic
+│   └── presentation/   # Screens and reusable widgets
+├── test/                # Unit and widget tests
+├── assets/              # Application assets
+└── pubspec.yaml
+
+docs/
+├── D&D Hub.md           # Full project plan and architecture notes
+├── PDF Importer.md      # PDF importer documentation
+```
+
+### Roadmap
+
+The project follows a **local-first → library → campaign → GM → sync → battle** progression.
 
 | Version | Milestone |
 |---|---|
 | **v0.1** ✅ | Local character client |
-| **v0.2** ✅ | Import / export, local content library, backup / restore |
+| **v0.2** ✅ | Import/export, local content library, backup/restore |
 | **v0.3** ✅ | Campaigns, participants, character linking, XP system |
-| **v0.3.1** ✅ | Android migration, backup/restore, and import fixes |
-| v0.4 | GM mode |
-| v0.5 | Local GM server + real-time sync |
-| v0.6 | Battle mode |
-| v0.7 | Session tools |
+| **v0.3.1** ✅ | Android migration, backup/restore and import fixes |
+| **v0.4** ✅ | GM Mode, GM character viewer and local Session Tools |
+| v0.5 | Local GM server + real-time synchronization |
+| v0.6 | Battle Mode |
+| v0.7 | Extended session/gameplay tools |
 | v1.0 | Complete core product |
 | v1.1+ | World system, AI assistant, AI GM |
 
-Full detailed design document (in Russian): [`docs/D&D Hub.md`](docs/D&D%20Hub.md).
+Full detailed design document: [`docs/D&D Hub.md`](docs/D%26D%20Hub.md).
+
+### Contributing
+
+Issues and pull requests are welcome. Please keep changes consistent with the local-first architecture and the project plan in `docs/`.
 
 ### License
 
-[MIT](LICENSE) — do whatever you want with it, just keep the license notice.
+[MIT](LICENSE) — use and modify the project freely while keeping the license notice.
 
 ---
 
-## 🎲 D&D Hub
-
-Кроссплатформенный **local-first** менеджер персонажей D&D на Flutter — быстрый офлайн цифровой лист персонажа для использования прямо во время игровой сессии.
-
-**Статус:** `v0.3.1` — кампании, участники, привязка персонажей, система XP, история XP и исправления Android/import/restore (см. [Roadmap](#roadmap--русский)).
+## 🇷🇺 Русский
 
 ### О проекте
 
-D&D Hub заменяет бумажный (или неудобный электронный) лист персонажа современным интерактивным инструментом, которым удобно пользоваться прямо за столом во время сессии.
+D&D Hub — кроссплатформенный **local-first** менеджер персонажей D&D на Flutter, рассчитанный на использование прямо во время игровой сессии.
 
-Главный принцип — **local-first**: без аккаунта, без сервера, без обязательного интернета. Данные персонажей, кампаний и прогрессии хранятся локально в SQLite. Сервер GM и синхронизация планируются на следующих этапах поверх офлайн-фундамента.
+Главный принцип — **local-first**: аккаунт, сервер и обязательное подключение к Интернету не требуются. Данные персонажей, кампаний и прогрессии хранятся локально в SQLite. Сервер GM и синхронизация в реальном времени запланированы на следующие этапы.
 
-### Возможности (v0.3.1)
+### Возможности — v0.4.0
 
-- Профиль персонажа: раса, класс, подкласс, предыстория, мировоззрение, уровень
+**Персонажи**
+
+- Профиль персонажа: раса, класс, подкласс, предыстория, мировоззрение и уровень
 - 6 базовых характеристик с модификаторами
-- Боевые параметры: HP / временные HP, КД, инициатива, скорость, бонус мастерства
-- Быстрые +/- регуляторы для HP, золота, опыта — того, что меняется чаще всего во время игры
-- Инвентарь (оружие, броня, прочие предметы)
-- Заклинания с ячейками по уровням и списком известных
+- Боевые параметры: HP, временные HP, КД, инициатива, скорость и бонус мастерства
+- Быстрые +/- регуляторы для HP, золота и XP
+- Инвентарь: оружие, броня и прочие предметы
+- Заклинания и ячейки заклинаний по уровням
 - Способности и атаки
-- Био (внешность, черты характера, идеалы, привязанности, слабости, предыстория)
 - Свободные заметки
-- Адаптивный интерфейс: нижняя навигация на телефоне, боковая `NavigationRail` на широких/десктопных экранах — одни и те же виджеты и данные, без дублирования логики
+- Био с внешностью, чертами характера, идеалами, привязанностями, слабостями, предысторией и изображением персонажа
+- Круглый аватар персонажа на основе изображения из Био с сохранением пропорций и качества
 
-### Исправления v0.3.1
+**Импорт, экспорт и библиотека**
 
-- Исправлена безопасная миграция существующих Android-баз данных.
-- Исправлен backup / restore на Android для существующих баз v0.3.
-- Пункт «Кампании» доступен в release-сборках на узких Android-экранах.
-- `.dndhub` экспорт / импорт персонажа сохраняет историю XP.
-- При импорте история XP привязывается к новому ID персонажа без переноса старых ID транзакций.
+- Импорт PDF, URL и JSON через общий Import Manager
+- Редактируемое превью импортируемых данных перед подтверждением импорта
+- Локальная библиотека контента для предметов, заклинаний, способностей и других объектов
+- Экспорт/импорт персонажа в `.dndhub`
+- Полный локальный backup/restore
+- История XP сохраняется при экспорте/импорте персонажа
 
-### Стек технологий
+**Кампании и GM Mode**
 
-- **Клиент:** Flutter / Dart
-- **Локальное хранилище:** SQLite (`sqflite` + `sqflite_common_ffi` для Windows)
-- **State management:** Provider
-- **Архитектура:** слоями — `presentation/` (экраны, виджеты) → `domain/` (providers) → `data/` (repositories, models, database)
+- Создание и управление кампаниями
+- Участники и привязка персонажей
+- GM Dashboard для выбранной кампании
+- Обзор игроков и персонажей с HP, КД и инициативой
+- Лист персонажа в режиме просмотра для GM
+- Локальные инструменты сессии: активная сессия, заметки GM и история сессий
 
-### Скриншоты
+**Интерфейс**
 
-См. таблицы со скриншотами выше — они одинаковы для обеих версий README.
+- Адаптивный Flutter-интерфейс
+- Нижняя навигация на телефонах
+- Боковая `NavigationRail` на широких/десктопных экранах
+- Общие виджеты и данные для разных платформ
+- Основные оранжевые кнопки используют белый текст и иконки
 
 ### Запуск проекта
 
@@ -183,29 +224,67 @@ D&D Hub заменяет бумажный (или неудобный элект�
 
 ```bash
 cd client
-flutter pub get   # сгенерирует pubspec.lock — закоммить его после этого (рекомендуется для приложений)
-flutter run -d windows   # или: flutter run -d chrome / устройство Android
+flutter pub get
+flutter run -d windows
 ```
 
-### Roadmap — Русский
+Для других платформ используются стандартные команды Flutter.
 
-Проект развивается по схеме **локальный клиент → библиотека контента → кампания → GM → синхронизация → боевой режим**, так что на каждом этапе остаётся рабочий продукт.
+### Сборка
+
+Windows:
+
+```bash
+cd client
+flutter build windows --debug
+```
+
+Android APK:
+
+```bash
+cd client
+flutter build apk --release
+```
+
+Файлы сборки и кэши Flutter/Dart исключены из Git через `.gitignore`.
+
+### Структура проекта
+
+```text
+client/
+├── lib/
+│   ├── core/            # Тема и общая инфраструктура
+│   ├── data/            # SQLite, repositories, models, import/export
+│   ├── domain/          # Providers и логика приложения
+│   └── presentation/   # Экраны и переиспользуемые виджеты
+├── test/                # Unit/widget tests
+├── assets/              # Ресурсы приложения
+└── pubspec.yaml
+
+docs/
+├── D&D Hub.md           # Полный план и архитектурные заметки проекта
+├── PDF Importer.md      # Документация PDF-импортёра
+```
+
+### Roadmap
+
+Проект развивается по схеме **локальный клиент → библиотека → кампания → GM → синхронизация → бой**.
 
 | Версия | Этап |
 |---|---|
 | **v0.1** ✅ | Локальный клиент персонажа |
-| **v0.2** ✅ | Импорт/экспорт, локальная библиотека контента, backup / restore |
+| **v0.2** ✅ | Импорт/экспорт, локальная библиотека, backup/restore |
 | **v0.3** ✅ | Кампании, участники, привязка персонажей, система XP |
 | **v0.3.1** ✅ | Исправления Android, backup/restore и импорта |
-| v0.4 | Режим GM |
+| **v0.4** ✅ | GM Mode, просмотр персонажей и локальные Session Tools |
 | v0.5 | Локальный GM-сервер + синхронизация в реальном времени |
 | v0.6 | Боевой режим |
-| v0.7 | Инструменты сессии |
+| v0.7 | Расширенные инструменты сессии/игрового процесса |
 | v1.0 | Завершённый базовый продукт |
 | v1.1+ | Мир кампании, AI-ассистент, AI GM |
 
-Полный подробный план разработки: [`docs/D&D Hub.md`](docs/D&D%20Hub.md).
+Полный подробный план разработки: [`docs/D&D Hub.md`](docs/D%26D%20Hub.md).
 
 ### Лицензия
 
-[MIT](LICENSE) — свободно используйте и модифицируйте, сохраняя уведомление о лицензии.
+[MIT](LICENSE) — проект можно свободно использовать и изменять с сохранением уведомления о лицензии.
