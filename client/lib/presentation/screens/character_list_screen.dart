@@ -17,6 +17,7 @@ import 'character_form_screen.dart';
 import 'character_home_screen.dart';
 import 'library_screen.dart';
 import 'campaign_list_screen.dart';
+import 'network_screen.dart';
 
 /// Первый экран приложения: список сохранённых персонажей.
 /// Позволяет создать нового персонажа или открыть существующего.
@@ -69,6 +70,13 @@ class _CharacterListScreenState extends State<CharacterListScreen> {
             tooltip: 'Кампании',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const CampaignListScreen()),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.wifi_tethering_outlined),
+            tooltip: 'Локальная игра',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const NetworkScreen()),
             ),
           ),
           IconButton(

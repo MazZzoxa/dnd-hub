@@ -1,5 +1,6 @@
 import '../database/database_helper.dart';
 import '../models/attack_model.dart';
+import '../../network/services/sync_ids.dart';
 
 class AttackRepository {
   final DatabaseHelper _db = DatabaseHelper.instance;
@@ -17,7 +18,9 @@ class AttackRepository {
 
   Future<int> create(AttackModel attack) async {
     final db = await _db.database;
-    return db.insert('attacks', attack.toMap());
+    final map = attack.toMap();
+    map['sync_id'] = attack.syncId.isEmpty ? SyncIds.newId() : attack.syncId;
+    return db.insert('attacks', map);
   }
 
   Future<int> update(AttackModel attack) async {

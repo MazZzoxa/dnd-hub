@@ -5,6 +5,7 @@ import 'dart:convert';
 /// см. принцип №6 в документе проекта (docs/D_D_Hub.md, п.22).
 class CharacterModel {
   final int? id;
+  final String syncId;
 
   // Identity
   final String name;
@@ -74,6 +75,7 @@ class CharacterModel {
 
   const CharacterModel({
     this.id,
+    this.syncId = '',
     required this.name,
     this.race = '',
     this.className = '',
@@ -187,6 +189,7 @@ class CharacterModel {
 
   CharacterModel copyWith({
     int? id,
+    String? syncId,
     String? name,
     String? race,
     String? className,
@@ -240,6 +243,7 @@ class CharacterModel {
   }) {
     return CharacterModel(
       id: id ?? this.id,
+      syncId: syncId ?? this.syncId,
       name: name ?? this.name,
       race: race ?? this.race,
       className: className ?? this.className,
@@ -296,6 +300,7 @@ class CharacterModel {
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
+      'sync_id': syncId,
       'name': name,
       'race': race,
       'class_name': className,
@@ -362,6 +367,7 @@ class CharacterModel {
   factory CharacterModel.fromMap(Map<String, dynamic> map) {
     return CharacterModel(
       id: map['id'] as int?,
+      syncId: map['sync_id'] as String? ?? '',
       name: map['name'] as String? ?? '',
       race: map['race'] as String? ?? '',
       className: map['class_name'] as String? ?? '',

@@ -1,7 +1,7 @@
 name: dnd_hub
 description: "D&D Hub — локальный цифровой лист персонажа D&D"
 publish_to: 'none'
-version: 0.4.0
+version: 0.5.0
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -31,6 +31,9 @@ dependencies:
   # HTTP-клиент для импорта по ссылке (URL importer)
   http: ^1.2.2
   html: ^0.15.6
+
+  # Отображение invite QR для локального подключения
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:

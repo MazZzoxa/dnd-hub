@@ -1,5 +1,6 @@
 class XpTransactionModel {
   final int? id;
+  final String syncId;
   final int characterId;
   final int delta;
   final int xpBefore;
@@ -11,6 +12,7 @@ class XpTransactionModel {
 
   const XpTransactionModel({
     this.id,
+    this.syncId = '',
     required this.characterId,
     required this.delta,
     required this.xpBefore,
@@ -23,6 +25,7 @@ class XpTransactionModel {
 
   Map<String, dynamic> toMap() => {
         if (id != null) 'id': id,
+      'sync_id': syncId,
         'character_id': characterId,
         'delta': delta,
         'xp_before': xpBefore,
@@ -35,6 +38,7 @@ class XpTransactionModel {
 
   factory XpTransactionModel.fromMap(Map<String, dynamic> map) => XpTransactionModel(
         id: map['id'] as int?,
+      syncId: map['sync_id']?.toString() ?? '',
         characterId: map['character_id'] as int,
         delta: map['delta'] as int,
         xpBefore: map['xp_before'] as int,

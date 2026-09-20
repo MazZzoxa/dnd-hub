@@ -10,14 +10,14 @@ class CampaignService {
 
   CampaignService({CampaignRepository? repository}) : _repository = repository ?? CampaignRepository();
 
-  Future<int> createCampaign({required String name, String description = '', required String gmName}) async {
+  Future<int> createCampaign({required String name, String description = '', required String gmName, String clientId = ''}) async {
     final cleanName = name.trim();
     final cleanGm = gmName.trim();
     if (cleanName.isEmpty) throw ArgumentError.value(name, 'name', 'Название кампании обязательно.');
     if (cleanGm.isEmpty) throw ArgumentError.value(gmName, 'gmName', 'Имя GM обязательно.');
     final now = DateTime.now();
     final campaign = CampaignModel(name: cleanName, description: description.trim(), createdAt: now, updatedAt: now);
-    final gm = CampaignMemberModel(campaignId: 0, name: cleanGm, role: CampaignRole.gm, createdAt: now);
+    final gm = CampaignMemberModel(campaignId: 0, name: cleanGm, role: CampaignRole.gm, clientId: clientId, createdAt: now);
     try {
       return await _repository.create(campaign, gm);
     } on DatabaseException catch (e) {
@@ -35,6 +35,7 @@ class CampaignService {
   Future<void> deleteCampaign(int id) => _repository.delete(id);
 
   Future<List<CampaignModel>> getCampaigns() => _repository.getAll();
+  Future<CampaignModel?> getById(int id) => _repository.getById(id);
   Future<List<CampaignMemberModel>> getMembers(int campaignId) => _repository.getMembers(campaignId);
   Future<List<Map<String, dynamic>>> getMembershipsForCharacter(int characterId) => _repository.getMembershipsForCharacter(characterId);
 
@@ -47,6 +48,42 @@ class CampaignService {
       role: CampaignRole.player,
       createdAt: DateTime.now(),
     ));
+  }
+
+
+  Future<int> addNetworkPlayer({required int campaignId, required String clientId, required String name}) async {
+    final cleanName = name.trim().isEmpty ? 'Player' : name.trim();
+    final db = await DatabaseHelper.instance.database;
+    final existing = await db.query(
+      'campaign_members',
+      where: 'campaign_id = ? AND client_id = ? AND role = ?',
+      whereArgs: [campaignId, clientId, 'player'],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
+      await db.update(
+        'campaign_members',
+        {'name': cleanName},
+        where: 'id = ?',
+        whereArgs: [existing.first['id']],
+      );
+      return existing.first['id'] as int;
+    }
+    return _repository.addMember(CampaignMemberModel(
+      campaignId: campaignId,
+      name: cleanName,
+      role: CampaignRole.player,
+      clientId: clientId,
+      createdAt: DateTime.now(),
+    ));
+  }
+
+  Future<CampaignMemberModel?> getMemberForClient({required int campaignId, required String clientId}) async {
+    final members = await _repository.getMembers(campaignId);
+    for (final member in members) {
+      if (member.clientId == clientId) return member;
+    }
+    return null;
   }
 
   Future<void> updateMember(CampaignMemberModel member) async {

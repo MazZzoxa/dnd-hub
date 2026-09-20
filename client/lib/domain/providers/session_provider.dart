@@ -1,23 +1,35 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../data/models/session_model.dart';
 import '../../data/repositories/session_repository.dart';
+import '../../network/protocol/network_message.dart';
+import '../../network/services/sync_ids.dart';
+import '../../network/services/sync_service.dart';
 
 class SessionProvider extends ChangeNotifier {
   final SessionRepository _repository;
+  final SyncService? _syncService;
+  StreamSubscription<NetworkMessage>? _syncSubscription;
 
-  SessionProvider({SessionRepository? repository})
-      : _repository = repository ?? SessionRepository();
+  SessionProvider({SessionRepository? repository, SyncService? syncService})
+      : _repository = repository ?? SessionRepository(),
+        _syncService = syncService {
+    _syncSubscription = _syncService?.events.listen(_onSyncEvent);
+  }
 
   List<SessionModel> _sessions = [];
   SessionModel? _active;
   bool _loading = false;
+  int? _campaignId;
 
   List<SessionModel> get sessions => List.unmodifiable(_sessions);
   SessionModel? get active => _active;
   bool get loading => _loading;
 
   Future<void> load(int campaignId) async {
+    _campaignId = campaignId;
     _loading = true;
     notifyListeners();
     _sessions = await _repository.getForCampaign(campaignId);
@@ -42,6 +54,7 @@ class SessionProvider extends ChangeNotifier {
       throw StateError('В этой кампании уже есть активная сессия. Сначала завершите её.');
     }
     final session = SessionModel(
+      syncId: SyncIds.newId(),
       campaignId: campaignId,
       title: title.trim().isEmpty ? 'Новая сессия' : title.trim(),
       status: SessionStatus.active,
@@ -51,7 +64,9 @@ class SessionProvider extends ChangeNotifier {
     );
     final id = await _repository.create(session);
     await load(campaignId);
-    return _sessions.firstWhere((item) => item.id == id);
+    final created = _sessions.firstWhere((item) => item.id == id);
+    await _syncService?.publishEntity('session', created.toMap());
+    return created;
   }
 
   Future<void> updateActive({String? title, String? notes}) async {
@@ -66,6 +81,7 @@ class SessionProvider extends ChangeNotifier {
     _replace(updated);
     _active = updated;
     notifyListeners();
+    await _syncService?.publishEntity('session', updated.toMap());
   }
 
   Future<void> completeActive() async {
@@ -81,6 +97,7 @@ class SessionProvider extends ChangeNotifier {
     _replace(updated);
     _active = null;
     notifyListeners();
+    await _syncService?.publishEntity('session', updated.toMap());
   }
 
   Future<void> deleteSession(SessionModel session) async {
@@ -89,6 +106,16 @@ class SessionProvider extends ChangeNotifier {
     _sessions.removeWhere((item) => item.id == session.id);
     if (_active?.id == session.id) _active = null;
     notifyListeners();
+    await _syncService?.publishDelete('session', session.syncId);
+  }
+
+  Future<void> _onSyncEvent(NetworkMessage event) async {
+    final entity = event.payload['entity']?.toString();
+    final name = event.payload['event']?.toString();
+    if (name == 'state.snapshot' || entity == 'session') {
+      final id = _campaignId;
+      if (id != null) await load(id);
+    }
   }
 
   void _replace(SessionModel session) {
@@ -98,5 +125,11 @@ class SessionProvider extends ChangeNotifier {
     } else {
       _sessions[index] = session;
     }
+  }
+
+  @override
+  void dispose() {
+    _syncSubscription?.cancel();
+    super.dispose();
   }
 }

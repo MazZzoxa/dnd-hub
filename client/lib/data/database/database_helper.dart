@@ -29,7 +29,8 @@ class DatabaseHelper {
   // items/spells/abilities — по образцу одноимённого поля library_items,
   // но заполняется отдельно при создании прямо на листе персонажа.
   // v8: добавлено изображение био персонажа (base64 в локальной SQLite).
-  static const _dbVersion = 8;
+  // v9: добавлена transport-independent sync_id для сетевой идентичности.
+  static const _dbVersion = 10;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -79,6 +80,8 @@ class DatabaseHelper {
   Future<void> _onOpen(Database db) async {
     await _ensureV03Schema(db);
     await _ensureBioImageColumn(db);
+    await _ensureSyncIdSchema(db);
+    await _ensureNetworkIdentitySchema(db);
   }
 
   Future<void> _ensureBioImageColumn(Database db) async {
@@ -94,6 +97,7 @@ class DatabaseHelper {
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
       CREATE TABLE characters (
+        sync_id TEXT NOT NULL DEFAULT '',
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         race TEXT NOT NULL DEFAULT '',
@@ -170,6 +174,7 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE items (
+        sync_id TEXT NOT NULL DEFAULT '',
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         character_id INTEGER NOT NULL,
         name TEXT NOT NULL,
@@ -186,6 +191,7 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE spells (
+        sync_id TEXT NOT NULL DEFAULT '',
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         character_id INTEGER NOT NULL,
         name TEXT NOT NULL,
@@ -206,6 +212,7 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE abilities (
+        sync_id TEXT NOT NULL DEFAULT '',
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         character_id INTEGER NOT NULL,
         name TEXT NOT NULL,
@@ -221,6 +228,7 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE notes (
+        sync_id TEXT NOT NULL DEFAULT '',
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         character_id INTEGER NOT NULL,
         title TEXT NOT NULL DEFAULT '',
@@ -232,6 +240,7 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE attacks (
+        sync_id TEXT NOT NULL DEFAULT '',
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         character_id INTEGER NOT NULL,
         name TEXT NOT NULL,
@@ -244,6 +253,7 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE campaigns (
+        sync_id TEXT NOT NULL DEFAULT '',
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
@@ -254,10 +264,12 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE campaign_members (
+        sync_id TEXT NOT NULL DEFAULT '',
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         campaign_id INTEGER NOT NULL,
         name TEXT NOT NULL,
         role TEXT NOT NULL CHECK (role IN ('gm', 'player')),
+        client_id TEXT NOT NULL DEFAULT '',
         linked_character_id INTEGER,
         created_at TEXT NOT NULL,
         FOREIGN KEY (campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE,
@@ -271,6 +283,7 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE campaign_sessions (
+        sync_id TEXT NOT NULL DEFAULT '',
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         campaign_id INTEGER NOT NULL,
         title TEXT NOT NULL DEFAULT '',
@@ -289,6 +302,7 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE xp_transactions (
+        sync_id TEXT NOT NULL DEFAULT '',
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         character_id INTEGER NOT NULL,
         delta INTEGER NOT NULL,
@@ -305,6 +319,7 @@ class DatabaseHelper {
 
     await db.execute('''
       CREATE TABLE spell_slots (
+        sync_id TEXT NOT NULL DEFAULT '',
         character_id INTEGER NOT NULL,
         level INTEGER NOT NULL,
         total INTEGER NOT NULL DEFAULT 0,
@@ -313,6 +328,76 @@ class DatabaseHelper {
         FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE
       )
     ''');
+  }
+
+
+  Future<void> _ensureNetworkIdentitySchema(Database db) async {
+    final memberColumns = await db.rawQuery('PRAGMA table_info(campaign_members)');
+    final hasClientId = memberColumns.any((row) => row['name'] == 'client_id');
+    if (!hasClientId) {
+      await db.execute("ALTER TABLE campaign_members ADD COLUMN client_id TEXT NOT NULL DEFAULT ''");
+    }
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_campaign_members_client ON campaign_members(client_id)');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS local_identity (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _ensureSyncIdSchema(Database db) async {
+    const tables = <String>[
+      'characters',
+      'items',
+      'spells',
+      'abilities',
+      'notes',
+      'attacks',
+      'campaigns',
+      'campaign_members',
+      'campaign_sessions',
+      'xp_transactions',
+      'spell_slots',
+    ];
+
+    for (final table in tables) {
+      final columns = await db.rawQuery('PRAGMA table_info($table)');
+      final hasSyncId = columns.any((row) => row['name'] == 'sync_id');
+      if (!hasSyncId) {
+        await db.execute("ALTER TABLE $table ADD COLUMN sync_id TEXT NOT NULL DEFAULT ''");
+      }
+      await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_sync_id ON $table(sync_id) WHERE sync_id <> ''");
+    }
+
+    // Existing v0.4 rows need stable identifiers before they can participate
+    // in network sync. Importing a backup or moving a database keeps the local
+    // integer primary key, while sync_id remains the network identity.
+    final tablesToFill = <String>[
+      'characters',
+      'items',
+      'spells',
+      'abilities',
+      'notes',
+      'attacks',
+      'campaigns',
+      'campaign_members',
+      'campaign_sessions',
+      'xp_transactions',
+      'spell_slots',
+    ];
+    for (final table in tablesToFill) {
+      final rows = await db.query(table, columns: ['rowid', 'sync_id'], where: "sync_id = '' OR sync_id IS NULL");
+      if (rows.isEmpty) continue;
+      await db.transaction((txn) async {
+        for (final row in rows) {
+          await txn.rawUpdate(
+              "UPDATE $table SET sync_id = lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6))) WHERE rowid = ?",
+              [row['rowid']],
+            );
+        }
+      });
+    }
   }
 
 
@@ -336,6 +421,7 @@ class DatabaseHelper {
         campaign_id INTEGER NOT NULL,
         name TEXT NOT NULL,
         role TEXT NOT NULL CHECK (role IN ('gm', 'player')),
+        client_id TEXT NOT NULL DEFAULT '',
         linked_character_id INTEGER,
         created_at TEXT NOT NULL,
         FOREIGN KEY (campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE,
@@ -582,6 +668,25 @@ class DatabaseHelper {
       await db.execute(
         "ALTER TABLE characters ADD COLUMN bio_image TEXT NOT NULL DEFAULT ''",
       );
+    }
+
+    if (oldVersion < 9) {
+      await _ensureSyncIdSchema(db);
+    }
+
+    if (oldVersion < 10) {
+      final memberColumns = await db.rawQuery('PRAGMA table_info(campaign_members)');
+      final hasClientId = memberColumns.any((row) => row['name'] == 'client_id');
+      if (!hasClientId) {
+        await db.execute("ALTER TABLE campaign_members ADD COLUMN client_id TEXT NOT NULL DEFAULT ''");
+      }
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_campaign_members_client ON campaign_members(client_id)');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS local_identity (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      ''');
     }
   }
 

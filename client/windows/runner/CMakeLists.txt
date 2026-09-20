@@ -39,3 +39,14 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# Bundle the local GM server beside the Windows executable. The target is
+# defined in this directory, so the POST_BUILD rule must also live here.
+# This keeps both Debug and Release builds self-contained.
+set(DND_HUB_SERVER_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../server")
+add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${DND_HUB_SERVER_SOURCE_DIR}"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/server"
+  COMMENT "Bundling D&D Hub GM Server"
+)

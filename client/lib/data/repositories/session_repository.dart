@@ -1,5 +1,6 @@
 import '../database/database_helper.dart';
 import '../models/session_model.dart';
+import '../../network/services/sync_ids.dart';
 
 class SessionRepository {
   final DatabaseHelper _database = DatabaseHelper.instance;
@@ -29,7 +30,9 @@ class SessionRepository {
 
   Future<int> create(SessionModel session) async {
     final db = await _database.database;
-    return db.insert('campaign_sessions', session.toMap()..remove('id'));
+    final map = session.toMap()..remove('id');
+    map['sync_id'] = session.syncId.isEmpty ? SyncIds.newId() : session.syncId;
+    return db.insert('campaign_sessions', map);
   }
 
   Future<void> update(SessionModel session) async {

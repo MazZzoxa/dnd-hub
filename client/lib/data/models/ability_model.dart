@@ -1,5 +1,6 @@
 class AbilityModel {
   final int? id;
+  final String syncId;
   final int characterId;
   final String name;
   final String description;
@@ -16,6 +17,7 @@ class AbilityModel {
 
   const AbilityModel({
     this.id,
+    this.syncId = '',
     required this.characterId,
     required this.name,
     this.description = '',
@@ -26,6 +28,7 @@ class AbilityModel {
   });
 
   AbilityModel copyWith({
+    String? syncId,
     int? id,
     int? characterId,
     String? name,
@@ -37,6 +40,7 @@ class AbilityModel {
   }) {
     return AbilityModel(
       id: id ?? this.id,
+      syncId: syncId ?? this.syncId,
       characterId: characterId ?? this.characterId,
       name: name ?? this.name,
       description: description ?? this.description,
@@ -50,6 +54,7 @@ class AbilityModel {
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
+      'sync_id': syncId,
       'character_id': characterId,
       'name': name,
       'description': description,
@@ -63,6 +68,7 @@ class AbilityModel {
   factory AbilityModel.fromMap(Map<String, dynamic> map) {
     return AbilityModel(
       id: map['id'] as int?,
+      syncId: map['sync_id']?.toString() ?? '',
       characterId: map['character_id'] as int,
       name: map['name'] as String? ?? '',
       description: map['description'] as String? ?? '',

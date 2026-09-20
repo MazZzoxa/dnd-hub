@@ -1,5 +1,6 @@
 class ItemModel {
   final int? id;
+  final String syncId;
   final int characterId;
   final String name;
   final int quantity;
@@ -17,6 +18,7 @@ class ItemModel {
 
   const ItemModel({
     this.id,
+    this.syncId = '',
     required this.characterId,
     required this.name,
     this.quantity = 1,
@@ -28,6 +30,7 @@ class ItemModel {
   });
 
   ItemModel copyWith({
+    String? syncId,
     int? id,
     int? characterId,
     String? name,
@@ -40,6 +43,7 @@ class ItemModel {
   }) {
     return ItemModel(
       id: id ?? this.id,
+      syncId: syncId ?? this.syncId,
       characterId: characterId ?? this.characterId,
       name: name ?? this.name,
       quantity: quantity ?? this.quantity,
@@ -54,6 +58,7 @@ class ItemModel {
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
+      'sync_id': syncId,
       'character_id': characterId,
       'name': name,
       'quantity': quantity,
@@ -68,6 +73,7 @@ class ItemModel {
   factory ItemModel.fromMap(Map<String, dynamic> map) {
     return ItemModel(
       id: map['id'] as int?,
+      syncId: map['sync_id']?.toString() ?? '',
       characterId: map['character_id'] as int,
       name: map['name'] as String? ?? '',
       quantity: map['quantity'] as int? ?? 1,

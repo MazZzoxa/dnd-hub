@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import '../database/database_helper.dart';
 import '../models/character_model.dart';
 import '../models/xp_transaction_model.dart';
+import '../../network/services/sync_ids.dart';
 
 class XpRepository {
   final DatabaseHelper _database = DatabaseHelper.instance;
@@ -45,7 +46,9 @@ class XpRepository {
         reason: reason.trim(),
         createdAt: now,
       );
-      final id = await txn.insert('xp_transactions', row.toMap()..remove('id'));
+      final map = row.toMap()..remove('id');
+      map['sync_id'] = SyncIds.newId();
+      final id = await txn.insert('xp_transactions', map);
       return XpTransactionModel.fromMap({...row.toMap(), 'id': id});
     });
   }

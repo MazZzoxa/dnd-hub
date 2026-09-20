@@ -2,8 +2,8 @@
 
 A local-first, cross-platform D&D character manager built with Flutter — a fast, offline digital character sheet for use during actual game sessions.
 
-**Current version:** `v0.4.0`  
-**Status:** Local-first character, campaign and GM tools are implemented. Real-time synchronization and the local GM server are planned for `v0.5`.  
+**Current version:** `v0.5.0`  
+**Status:** `v0.5.0` completes the LAN multiplayer foundation: local GM server, LAN discovery, campaign state sync, automatic Player membership, separate GM/Player interfaces, reconnect/resume, campaign permissions and player disconnect. Wi-Fi P2P and Bluetooth remain future transport options.  
 **Author:** [@MazZzoxa](https://github.com/MazZzoxa)
 
 🇬🇧 [English](#-dd-hub) · 🇷🇺 [Русский](#-dd-hub-1)
@@ -20,9 +20,9 @@ A local-first, cross-platform D&D character manager built with Flutter — a fas
 
 D&D Hub is a local-first digital D&D character manager designed to be used directly during a game session.
 
-The main principle is **local-first**: no account, no server and no mandatory Internet connection are required. Character, campaign and progression data are stored locally in SQLite. Multiplayer synchronization and the GM server are deliberately kept for a later stage of the project.
+The main principle is **local-first**: no account and no mandatory Internet connection are required. Character, campaign and progression data remain stored locally in SQLite. During a hosted local game, the GM runs a temporary local FastAPI/WebSocket server and player devices keep a local SQLite replica. The GM and Player use different campaign interfaces and permissions.
 
-### Features — v0.4.0
+### Features — v0.5.0
 
 **Character management**
 
@@ -49,11 +49,26 @@ The main principle is **local-first**: no account, no server and no mandatory In
 **Campaigns and GM Mode**
 
 - Campaign creation and management
-- Player membership and character linking
+- Separate lists for campaigns you created and campaigns you joined
+- Different GM and Player campaign interfaces and permissions
+- Player membership, automatic LAN member creation and character linking
+- Player disconnect from a joined LAN campaign
 - GM Dashboard for a selected campaign
 - Player/character overview with HP, AC and initiative
 - Read-only character sheet viewer for the GM
 - Local Session Tools with an active session, GM notes and session history
+
+**Local networking — v0.5.0**
+
+- Windows GM local FastAPI/WebSocket server
+- Android Player LAN discovery and Join flow
+- Random invite tokens and QR/manual invite fallback
+- Transport-independent sync protocol with stable network `sync_id` values
+- Real-time sync for campaigns, members, sessions, characters, inventory, spells, abilities, attacks, notes, spell slots and XP history
+- Authoritative in-memory GM server state with ordered event sequence numbers
+- Full campaign snapshots for initial state and recovery
+- Automatic reconnect with `resume(last_sequence)` and snapshot fallback
+- Local SQLite remains the persistent replica on every device
 
 **Interface**
 
@@ -137,6 +152,8 @@ client/
 
 docs/
 ├── D&D Hub.md           # Full project plan and architecture notes
+├── networking-v0.5.md   # Local transport and sync architecture
+├── releases/            # Version-specific release notes
 ├── PDF Importer.md      # PDF importer documentation
 ```
 
@@ -151,7 +168,7 @@ The project follows a **local-first → library → campaign → GM → sync →
 | **v0.3** ✅ | Campaigns, participants, character linking, XP system |
 | **v0.3.1** ✅ | Android migration, backup/restore and import fixes |
 | **v0.4** ✅ | GM Mode, GM character viewer and local Session Tools |
-| v0.5 | Local GM server + real-time synchronization |
+| **v0.5.0** ✅ | LAN/WebSocket networking, automatic Player membership, GM/Player interfaces, campaign permissions and recovery |
 | v0.6 | Battle Mode |
 | v0.7 | Extended session/gameplay tools |
 | v1.0 | Complete core product |
@@ -175,9 +192,9 @@ Issues and pull requests are welcome. Please keep changes consistent with the lo
 
 D&D Hub — кроссплатформенный **local-first** менеджер персонажей D&D на Flutter, рассчитанный на использование прямо во время игровой сессии.
 
-Главный принцип — **local-first**: аккаунт, сервер и обязательное подключение к Интернету не требуются. Данные персонажей, кампаний и прогрессии хранятся локально в SQLite. Сервер GM и синхронизация в реальном времени запланированы на следующие этапы.
+Главный принцип — **local-first**: аккаунт, сервер и обязательное подключение к Интернету не требуются. Данные персонажей, кампаний и прогрессии хранятся локально в SQLite. Во время локальной игры GM запускает временный локальный FastAPI/WebSocket-сервер, а устройства игроков сохраняют локальную SQLite-реплику. Интерфейсы и права GM и Player различаются.
 
-### Возможности — v0.4.0
+### Возможности — v0.5.0
 
 **Персонажи**
 
@@ -204,7 +221,10 @@ D&D Hub — кроссплатформенный **local-first** менедже�
 **Кампании и GM Mode**
 
 - Создание и управление кампаниями
-- Участники и привязка персонажей
+- Отдельные списки созданных и присоединённых кампаний
+- Раздельные интерфейсы и права GM и Player
+- Автоматическое создание участника при LAN-подключении и привязка персонажа
+- Возможность отключиться от присоединённой LAN-кампании
 - GM Dashboard для выбранной кампании
 - Обзор игроков и персонажей с HP, КД и инициативой
 - Лист персонажа в режиме просмотра для GM
@@ -217,6 +237,17 @@ D&D Hub — кроссплатформенный **local-first** менедже�
 - Боковая `NavigationRail` на широких/десктопных экранах
 - Общие виджеты и данные для разных платформ
 - Основные оранжевые кнопки используют белый текст и иконки
+
+### Локальная сеть — v0.5.0
+
+- GM запускает `Host Game` из выбранной кампании.
+- Player открывает `Локальная игра` → `Find Game` и выбирает найденную кампанию.
+- Подключение идёт по LAN через WebSocket; при необходимости можно использовать invite/QR или ручные параметры.
+- Через `SyncService` синхронизируются кампания, участники, сессии, персонаж и связанные игровые данные (инвентарь, заклинания, способности, атаки, заметки, spell slots, XP).
+- GM Server хранит authoritative state текущей LAN-сессии и нумерует события последовательностью.
+- При обрыве соединения клиент автоматически пытается переподключиться; после reconnect отправляется `resume` по последнему sequence, а при необходимости сервер отдаёт полный snapshot.
+- Локальная SQLite остаётся постоянной репликой; серверная память существует только в рамках запущенной GM-сессии.
+- Wi-Fi P2P и Bluetooth пока не являются частью реализованного `v0.5.0` и остаются отложенными transport-опциями.
 
 ### Запуск проекта
 
@@ -277,7 +308,7 @@ docs/
 | **v0.3** ✅ | Кампании, участники, привязка персонажей, система XP |
 | **v0.3.1** ✅ | Исправления Android, backup/restore и импорта |
 | **v0.4** ✅ | GM Mode, просмотр персонажей и локальные Session Tools |
-| v0.5 | Локальный GM-сервер + синхронизация в реальном времени |
+| **v0.5.0** ✅ | Локальный GM-сервер + LAN-синхронизация в реальном времени, роли GM/Player и управление участниками |
 | v0.6 | Боевой режим |
 | v0.7 | Расширенные инструменты сессии/игрового процесса |
 | v1.0 | Завершённый базовый продукт |
@@ -288,3 +319,4 @@ docs/
 ### Лицензия
 
 [MIT](LICENSE) — проект можно свободно использовать и изменять с сохранением уведомления о лицензии.
+

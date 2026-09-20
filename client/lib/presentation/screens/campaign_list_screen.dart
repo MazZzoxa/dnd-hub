@@ -26,7 +26,9 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
     final created = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const CampaignFormScreen()),
     );
-    if (created == true && mounted) await context.read<CampaignProvider>().loadCampaigns();
+    if (created == true && mounted) {
+      await context.read<CampaignProvider>().loadCampaigns();
+    }
   }
 
   @override
@@ -38,7 +40,10 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
           if (provider.loading && provider.campaigns.isEmpty) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (provider.campaigns.isEmpty) {
+
+          final hasOwned = provider.ownedCampaigns.isNotEmpty;
+          final hasJoined = provider.joinedCampaigns.isNotEmpty;
+          if (!hasOwned && !hasJoined) {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
@@ -49,7 +54,7 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
                     const SizedBox(height: 14),
                     const Text('Кампаний пока нет', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
-                    const Text('Создайте локальную кампанию и назначьте GM.'),
+                    const Text('Создайте кампанию или подключитесь к игре GM.'),
                     const SizedBox(height: 18),
                     FilledButton.icon(onPressed: _create, icon: const Icon(Icons.add), label: const Text('Новая кампания')),
                   ],
@@ -57,30 +62,84 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
               ),
             );
           }
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: provider.campaigns.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              final campaign = provider.campaigns[index];
-              return Card(
-                child: ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.groups_outlined)),
-                  title: Text(campaign.name),
-                  subtitle: Text(campaign.description.isEmpty ? 'Локальная кампания' : campaign.description, maxLines: 2, overflow: TextOverflow.ellipsis),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () async {
-                    await provider.selectCampaign(campaign);
-                    if (!context.mounted) return;
-                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CampaignHomeScreen()));
-                  },
-                ),
-              );
-            },
+
+          return RefreshIndicator(
+            onRefresh: provider.loadCampaigns,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                if (hasOwned) ...[
+                  _SectionTitle(title: 'Созданные мной', icon: Icons.shield_outlined),
+                  ...provider.ownedCampaigns.map((campaign) => _CampaignTile(campaign: campaign)),
+                ],
+                if (hasOwned && hasJoined) const SizedBox(height: 18),
+                if (hasJoined) ...[
+                  _SectionTitle(title: 'Присоединённые', icon: Icons.person_outline),
+                  ...provider.joinedCampaigns.map((campaign) => _CampaignTile(campaign: campaign, joined: true)),
+                ],
+                const SizedBox(height: 88),
+              ],
+            ),
           );
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(onPressed: _create, icon: const Icon(Icons.add), label: const Text('Новая кампания')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _create,
+        icon: const Icon(Icons.add),
+        label: const Text('Новая кампания'),
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  const _SectionTitle({required this.title, required this.icon});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 4, 4, 10),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: AppTheme.primary),
+            const SizedBox(width: 8),
+            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+          ],
+        ),
+      );
+}
+
+class _CampaignTile extends StatelessWidget {
+  final dynamic campaign;
+  final bool joined;
+
+  const _CampaignTile({required this.campaign, this.joined = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        leading: CircleAvatar(
+          child: Icon(joined ? Icons.person_outline : Icons.shield_outlined),
+        ),
+        title: Text(campaign.name),
+        subtitle: Text(
+          campaign.description.isEmpty
+              ? (joined ? 'Кампания GM • режим игрока' : 'Ваша кампания • режим GM')
+              : campaign.description,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Icon(joined ? Icons.visibility_outlined : Icons.chevron_right),
+        onTap: () async {
+          final provider = context.read<CampaignProvider>();
+          await provider.selectCampaign(campaign);
+          if (!context.mounted) return;
+          Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CampaignHomeScreen()));
+        },
+      ),
     );
   }
 }

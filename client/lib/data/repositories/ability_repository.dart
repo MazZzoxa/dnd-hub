@@ -1,5 +1,6 @@
 import '../database/database_helper.dart';
 import '../models/ability_model.dart';
+import '../../network/services/sync_ids.dart';
 
 class AbilityRepository {
   final DatabaseHelper _db = DatabaseHelper.instance;
@@ -17,7 +18,9 @@ class AbilityRepository {
 
   Future<int> create(AbilityModel ability) async {
     final db = await _db.database;
-    return db.insert('abilities', ability.toMap());
+    final map = ability.toMap();
+    map['sync_id'] = ability.syncId.isEmpty ? SyncIds.newId() : ability.syncId;
+    return db.insert('abilities', map);
   }
 
   Future<int> update(AbilityModel ability) async {

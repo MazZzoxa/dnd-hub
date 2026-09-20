@@ -22,6 +22,7 @@ extension SessionStatusX on SessionStatus {
 
 class SessionModel {
   final int? id;
+  final String syncId;
   final int campaignId;
   final String title;
   final String notes;
@@ -33,6 +34,7 @@ class SessionModel {
 
   const SessionModel({
     this.id,
+    this.syncId = '',
     required this.campaignId,
     required this.title,
     this.notes = '',
@@ -44,6 +46,7 @@ class SessionModel {
   });
 
   SessionModel copyWith({
+    String? syncId,
     int? id,
     int? campaignId,
     String? title,
@@ -58,6 +61,7 @@ class SessionModel {
   }) {
     return SessionModel(
       id: id ?? this.id,
+      syncId: syncId ?? this.syncId,
       campaignId: campaignId ?? this.campaignId,
       title: title ?? this.title,
       notes: notes ?? this.notes,
@@ -71,6 +75,7 @@ class SessionModel {
 
   Map<String, dynamic> toMap() => {
         if (id != null) 'id': id,
+      'sync_id': syncId,
         'campaign_id': campaignId,
         'title': title,
         'notes': notes,
@@ -83,6 +88,7 @@ class SessionModel {
 
   factory SessionModel.fromMap(Map<String, dynamic> map) => SessionModel(
         id: map['id'] as int?,
+      syncId: map['sync_id']?.toString() ?? '',
         campaignId: map['campaign_id'] as int,
         title: map['title'] as String? ?? '',
         notes: map['notes'] as String? ?? '',

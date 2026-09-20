@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
 import '../models/spell_slot_model.dart';
+import '../../network/services/sync_ids.dart';
 
 class SpellSlotRepository {
   final DatabaseHelper _db = DatabaseHelper.instance;
@@ -23,7 +24,10 @@ class SpellSlotRepository {
     final db = await _db.database;
     await db.insert(
       'spell_slots',
-      slot.toMap(),
+      {
+        ...slot.toMap(),
+        'sync_id': slot.syncId.isEmpty ? SyncIds.newId() : slot.syncId,
+      },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }

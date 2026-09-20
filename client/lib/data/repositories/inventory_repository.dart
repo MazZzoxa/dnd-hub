@@ -1,5 +1,6 @@
 import '../database/database_helper.dart';
 import '../models/item_model.dart';
+import '../../network/services/sync_ids.dart';
 
 class InventoryRepository {
   final DatabaseHelper _db = DatabaseHelper.instance;
@@ -17,7 +18,9 @@ class InventoryRepository {
 
   Future<int> create(ItemModel item) async {
     final db = await _db.database;
-    return db.insert('items', item.toMap());
+    final map = item.toMap();
+    map['sync_id'] = item.syncId.isEmpty ? SyncIds.newId() : item.syncId;
+    return db.insert('items', map);
   }
 
   Future<int> update(ItemModel item) async {

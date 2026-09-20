@@ -9,7 +9,6 @@ import '../../data/models/session_model.dart';
 import '../../domain/providers/campaign_provider.dart';
 import '../../domain/providers/character_provider.dart';
 import '../../domain/providers/session_provider.dart';
-import 'campaign_home_screen.dart';
 import 'gm_character_sheet_screen.dart';
 
 class GmDashboardScreen extends StatefulWidget {
@@ -51,13 +50,6 @@ class _GmDashboardScreenState extends State<GmDashboardScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('GM · ${campaign.name}'),
-        actions: [
-          IconButton(
-            tooltip: 'Управление кампанией',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CampaignHomeScreen())),
-          ),
-        ],
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -146,15 +138,7 @@ class _OverviewView extends StatelessWidget {
         const SizedBox(height: 12),
         _ActiveSessionCard(campaignId: campaignId, active: active, onOpenSession: onOpenSession),
         const SizedBox(height: 12),
-        Card(
-          child: ListTile(
-            leading: const Icon(Icons.settings_outlined, color: AppTheme.accent),
-            title: const Text('Управление кампанией'),
-            subtitle: const Text('Участники, роли, имена и привязка персонажей'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CampaignHomeScreen())),
-          ),
-        ),
+
       ],
     );
   }
@@ -254,7 +238,7 @@ class _PlayersView extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Row(children: [const Expanded(child: Text('Игроки и персонажи', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800))), FilledButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CampaignHomeScreen())), icon: const Icon(Icons.settings_outlined), label: const Text('Управление'))]),
+        const Text('Игроки и персонажи', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
         const SizedBox(height: 12),
         if (members.isEmpty)
           const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('В кампании пока нет игроков.', style: TextStyle(color: AppTheme.textSecondary))))

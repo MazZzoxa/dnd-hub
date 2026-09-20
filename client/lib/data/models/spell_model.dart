@@ -1,5 +1,6 @@
 class SpellModel {
   final int? id;
+  final String syncId;
   final int characterId;
   final String name;
   final int level; // 0 = заговор (cantrip)
@@ -20,6 +21,7 @@ class SpellModel {
 
   const SpellModel({
     this.id,
+    this.syncId = '',
     required this.characterId,
     required this.name,
     this.level = 0,
@@ -35,6 +37,7 @@ class SpellModel {
   });
 
   SpellModel copyWith({
+    String? syncId,
     int? id,
     int? characterId,
     String? name,
@@ -51,6 +54,7 @@ class SpellModel {
   }) {
     return SpellModel(
       id: id ?? this.id,
+      syncId: syncId ?? this.syncId,
       characterId: characterId ?? this.characterId,
       name: name ?? this.name,
       level: level ?? this.level,
@@ -69,6 +73,7 @@ class SpellModel {
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
+      'sync_id': syncId,
       'character_id': characterId,
       'name': name,
       'level': level,
@@ -87,6 +92,7 @@ class SpellModel {
   factory SpellModel.fromMap(Map<String, dynamic> map) {
     return SpellModel(
       id: map['id'] as int?,
+      syncId: map['sync_id']?.toString() ?? '',
       characterId: map['character_id'] as int,
       name: map['name'] as String? ?? '',
       level: map['level'] as int? ?? 0,

@@ -1,5 +1,6 @@
 import '../database/database_helper.dart';
 import '../models/note_model.dart';
+import '../../network/services/sync_ids.dart';
 
 class NoteRepository {
   final DatabaseHelper _db = DatabaseHelper.instance;
@@ -17,7 +18,9 @@ class NoteRepository {
 
   Future<int> create(NoteModel note) async {
     final db = await _db.database;
-    return db.insert('notes', note.toMap());
+    final map = note.toMap();
+    map['sync_id'] = note.syncId.isEmpty ? SyncIds.newId() : note.syncId;
+    return db.insert('notes', map);
   }
 
   Future<int> update(NoteModel note) async {

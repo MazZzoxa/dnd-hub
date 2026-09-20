@@ -4,7 +4,7 @@
 
 ## Текущее состояние
 
-Текущая версия клиента: `v0.4.0`.
+Текущая версия клиента: `v0.5.0`.
 
 В версии `v0.4.0` реализованы локальные Campaign и GM-инструменты, просмотр персонажей для GM, Session Tools, изображения персонажей в Био и круглых аватарах, а также обновления интерфейса и локального хранения данных.
 
@@ -1244,26 +1244,29 @@ Gold 295
 
 # 38. Локальный GM Server
 
-В **v0.5** появляется локальный сервер.
+В **v0.5** появляется локальный сервер. В `v0.5.0` LAN-сценарий завершён: GM запускает временный FastAPI-сервер, Player находит его через локальный UDP discovery и подключается по WebSocket.
 
 GM запускает:
 
 ```text
 D&D Hub
      ↓
-GM Mode
+Campaign
      ↓
-Start Local Server
+Host Game
+     ↓
+Local GM Server
 ```
 
-Игроки подключаются к GM.
+Игроки подключаются к GM без обязательного интернета.
 
-Предварительный стек:
+Стек v0.5.0:
 
 ```text
 Python
 FastAPI
 WebSocket
+UDP discovery
 ```
 
 ---
@@ -1282,21 +1285,24 @@ GM Server
 Other Clients
 ```
 
-Необходимо реализовать:
+В `v0.5.0` реализованы:
 
-- WebSocket;
-    
-- события изменений;
-    
-- обновление данных;
-    
-- reconnect;
-    
-- обработку отключения;
-    
-- восстановление состояния;
-    
-- разрешение конфликтов.
+- transport-independent protocol v2;
+- stable `sync_id` отдельно от локальных SQLite ID;
+- real-time sync кампании, участников, сессий, персонажей, инвентаря, заклинаний, способностей, атак, заметок, spell slots и XP history;
+- acknowledgements, ordered `sequence` и bounded event history;
+- authoritative GM Server state;
+- initial/recovery snapshots;
+- reconnect/resume и snapshot fallback;
+- duplicate command protection;
+- campaign/entity scope validation;
+- automatic Campaign Member registration for joining players;
+- persistent local client identity for campaign membership;
+- separate GM / Player campaign interfaces;
+- role-aware campaign list: owned vs joined campaigns;
+- player-side permission boundary: only linked character and its child data can be mutated over the network.
+
+Wi-Fi P2P и Bluetooth остаются будущими transport-опциями. Интернет/VPN transport не входит в текущий LAN-релиз.
     
 
 ---
@@ -1809,25 +1815,31 @@ NPC  Story   AI GM
 
 # 59. Версия v0.5 — Local GM Server + Sync
 
-Добавить:
+Статус текущего v0.5.0: **завершён LAN-срез**.
+
+Реализовано:
 
 - FastAPI;
-    
 - WebSocket;
-    
-- локальный сервер GM;
-    
+- локальный GM Server;
+- LAN discovery;
 - подключение игроков;
-    
-- синхронизацию;
-    
-- real-time события;
-    
-- reconnect;
-    
-- восстановление состояния;
-    
-- обработку конфликтов.
+- transport-independent sync protocol v2;
+- stable `sync_id`;
+- full campaign state sync;
+- authoritative state + sequence/history;
+- snapshots;
+- reconnect / resume;
+- snapshot fallback;
+- duplicate command protection.
+
+Отложено после LAN-среза v0.5:
+
+- Wi-Fi P2P;
+- Bluetooth fallback;
+- интернет/VPN transport.
+
+Внутри LAN-среза дополнительно завершены Campaign roles/permissions, автоматическая регистрация подключившихся игроков и разделение GM/Player интерфейсов.
     
 
 ---
@@ -2414,7 +2426,7 @@ Rules frozen for v0.3:
 - Deleting a campaign deletes only campaign membership rows; linked characters remain.
 - XP belongs to the character, while XP changes are stored as transactions.
 - Level is derived from XP and is not edited independently in the UI.
-- v0.3 remains fully local/offline; GM dashboard, server, sync, battle mode and session tools are deferred.
+- v0.3 remains fully local/offline; later versions add GM, server, sync, battle mode and session tools.
 
 ### Реализация v0.3
 

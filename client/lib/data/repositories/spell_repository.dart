@@ -1,5 +1,6 @@
 import '../database/database_helper.dart';
 import '../models/spell_model.dart';
+import '../../network/services/sync_ids.dart';
 
 class SpellRepository {
   final DatabaseHelper _db = DatabaseHelper.instance;
@@ -17,7 +18,9 @@ class SpellRepository {
 
   Future<int> create(SpellModel spell) async {
     final db = await _db.database;
-    return db.insert('spells', spell.toMap());
+    final map = spell.toMap();
+    map['sync_id'] = spell.syncId.isEmpty ? SyncIds.newId() : spell.syncId;
+    return db.insert('spells', map);
   }
 
   Future<int> update(SpellModel spell) async {

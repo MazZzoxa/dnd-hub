@@ -13,31 +13,41 @@ import 'domain/providers/note_provider.dart';
 import 'domain/providers/spell_provider.dart';
 import 'domain/providers/spell_slot_provider.dart';
 import 'domain/providers/session_provider.dart';
+import 'network/connection_manager.dart';
+import 'network/services/sync_service.dart';
 import 'presentation/screens/character_list_screen.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const DndHubApp());
+  final connectionManager = ConnectionManager();
+  await connectionManager.initialize();
+  final syncService = SyncService(connectionManager);
+  runApp(DndHubApp(connectionManager: connectionManager, syncService: syncService));
 }
 
 class DndHubApp extends StatelessWidget {
-  const DndHubApp({super.key});
+  final ConnectionManager connectionManager;
+  final SyncService syncService;
+
+  const DndHubApp({super.key, required this.connectionManager, required this.syncService});
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => CharacterProvider()),
-        ChangeNotifierProvider(create: (_) => InventoryProvider()),
-        ChangeNotifierProvider(create: (_) => SpellProvider()),
-        ChangeNotifierProvider(create: (_) => SpellSlotProvider()),
-        ChangeNotifierProvider(create: (_) => AbilityProvider()),
-        ChangeNotifierProvider(create: (_) => AttackProvider()),
-        ChangeNotifierProvider(create: (_) => NoteProvider()),
+        ChangeNotifierProvider.value(value: connectionManager),
+        Provider.value(value: syncService),
+        ChangeNotifierProvider(create: (_) => CharacterProvider(syncService: syncService)),
+        ChangeNotifierProvider(create: (_) => InventoryProvider(syncService: syncService)),
+        ChangeNotifierProvider(create: (_) => SpellProvider(syncService: syncService)),
+        ChangeNotifierProvider(create: (_) => SpellSlotProvider(syncService: syncService)),
+        ChangeNotifierProvider(create: (_) => AbilityProvider(syncService: syncService)),
+        ChangeNotifierProvider(create: (_) => AttackProvider(syncService: syncService)),
+        ChangeNotifierProvider(create: (_) => NoteProvider(syncService: syncService)),
         ChangeNotifierProvider(create: (_) => LibraryProvider()),
-        ChangeNotifierProvider(create: (_) => CampaignProvider()),
-        ChangeNotifierProvider(create: (_) => XpProvider()),
-        ChangeNotifierProvider(create: (_) => SessionProvider()),
+        ChangeNotifierProvider(create: (_) => CampaignProvider(syncService: syncService, connectionManager: connectionManager)),
+        ChangeNotifierProvider(create: (_) => XpProvider(syncService: syncService)),
+        ChangeNotifierProvider(create: (_) => SessionProvider(syncService: syncService)),
       ],
       child: MaterialApp(
         title: 'D&D Hub',

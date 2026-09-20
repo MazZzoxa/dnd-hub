@@ -1,5 +1,6 @@
 import '../database/database_helper.dart';
 import '../models/character_model.dart';
+import '../../network/services/sync_ids.dart';
 
 class CharacterRepository {
   final DatabaseHelper _db = DatabaseHelper.instance;
@@ -19,7 +20,27 @@ class CharacterRepository {
 
   Future<int> create(CharacterModel character) async {
     final db = await _db.database;
-    return db.insert('characters', character.toMap());
+    return db.insert('characters', {
+      ...character.toMap(),
+      'sync_id': character.syncId.isEmpty ? SyncIds.newId() : character.syncId,
+    });
+  }
+
+  Future<CharacterModel?> findBySyncId(String syncId) async {
+    final db = await _db.database;
+    final rows = await db.query('characters', where: 'sync_id = ?', whereArgs: [syncId], limit: 1);
+    return rows.isEmpty ? null : CharacterModel.fromMap(rows.first);
+  }
+
+  Future<int> upsertBySyncId(CharacterModel character) async {
+    final db = await _db.database;
+    final rows = await db.query('characters', where: 'sync_id = ?', whereArgs: [character.syncId], limit: 1);
+    if (rows.isEmpty) {
+      return create(character);
+    }
+    final id = rows.first['id'] as int;
+    await db.update('characters', {...character.toMap()..remove('id')}, where: 'id = ?', whereArgs: [id]);
+    return id;
   }
 
   Future<int> update(CharacterModel character) async {

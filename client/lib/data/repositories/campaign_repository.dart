@@ -1,6 +1,7 @@
 import '../database/database_helper.dart';
 import '../models/campaign_model.dart';
 import '../models/campaign_member_model.dart';
+import '../../network/services/sync_ids.dart';
 
 class CampaignRepository {
   final DatabaseHelper _database = DatabaseHelper.instance;
@@ -38,8 +39,12 @@ class CampaignRepository {
   Future<int> create(CampaignModel campaign, CampaignMemberModel gm) async {
     final db = await _database.database;
     return db.transaction((txn) async {
-      final campaignId = await txn.insert('campaigns', campaign.toMap()..remove('id'));
-      await txn.insert('campaign_members', gm.copyWith(campaignId: campaignId).toMap()..remove('id'));
+      final campaignMap = campaign.toMap()..remove('id');
+      campaignMap['sync_id'] = campaign.syncId.isEmpty ? SyncIds.newId() : campaign.syncId;
+      final campaignId = await txn.insert('campaigns', campaignMap);
+      final memberMap = gm.copyWith(campaignId: campaignId).toMap()..remove('id');
+      memberMap['sync_id'] = gm.syncId.isEmpty ? SyncIds.newId() : gm.syncId;
+      await txn.insert('campaign_members', memberMap);
       return campaignId;
     });
   }
@@ -56,7 +61,9 @@ class CampaignRepository {
 
   Future<int> addMember(CampaignMemberModel member) async {
     final db = await _database.database;
-    return db.insert('campaign_members', member.toMap()..remove('id'));
+    final map = member.toMap()..remove('id');
+    map['sync_id'] = SyncIds.newId();
+    return db.insert('campaign_members', map);
   }
 
   Future<void> updateMember(CampaignMemberModel member) async {
