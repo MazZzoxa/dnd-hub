@@ -9,10 +9,12 @@ import '../../data/models/session_model.dart';
 import '../../domain/providers/campaign_provider.dart';
 import '../../domain/providers/character_provider.dart';
 import '../../domain/providers/session_provider.dart';
+import '../../domain/providers/battle_provider.dart';
 import '../../network/services/sync_service.dart';
 import '../../network/connection_manager.dart';
 import 'character_home_screen.dart';
 import 'gm_dashboard_screen.dart';
+import 'player_battle_screen.dart';
 import 'network_screen.dart';
 import '../widgets/character_avatar.dart';
 
@@ -67,7 +69,7 @@ class GmCampaignHomeScreen extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Удалить кампанию?'),
-        content: const Text('Кампания и её участники будут удалены. Персонажи и их XP останутся в базе и будут отвязаны от кампании.'),
+        content: const Text('Кампания и её участники будут удалены. Персонажи и их опыт останутся в базе и будут отвязаны от кампании.'),
         actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Удалить'))],
       ),
     );
@@ -108,7 +110,7 @@ class GmCampaignHomeScreen extends StatelessWidget {
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.shield_outlined, color: AppTheme.primary),
-                  title: const Text('GM Dashboard'),
+                  title: const Text('Панель ГМ'),
                   subtitle: const Text('Игроки, персонажи и текущая игровая сессия'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => Navigator.of(context).push(
@@ -165,8 +167,8 @@ class _MemberCard extends StatelessWidget {
                   if (action == 'role') {
                     if (member.role == CampaignRole.gm) {
                       final others = provider.members.where((m) => m.id != member.id).toList();
-                      if (others.isEmpty) throw StateError('Добавьте нового участника, чтобы назначить нового GM.');
-                      final selected = await showDialog<int>(context: context, builder: (_) => SimpleDialog(title: const Text('Новый GM'), children: [for (final item in others) SimpleDialogOption(onPressed: () => Navigator.pop(context, item.id), child: Text(item.name))]));
+                      if (others.isEmpty) throw StateError('Добавьте нового участника, чтобы назначить нового ГМ.');
+                      final selected = await showDialog<int>(context: context, builder: (_) => SimpleDialog(title: const Text('Новый ГМ'), children: [for (final item in others) SimpleDialogOption(onPressed: () => Navigator.pop(context, item.id), child: Text(item.name))]));
                       if (selected != null) await provider.replaceGm(selected);
                     } else {
                       await provider.replaceGm(member.id!);
@@ -188,7 +190,7 @@ class _MemberCard extends StatelessWidget {
               },
               itemBuilder: (_) => const [
                 PopupMenuItem(value: 'rename', child: Text('Переименовать')),
-                PopupMenuItem(value: 'role', child: Text('Сменить GM / Player')),
+                PopupMenuItem(value: 'role', child: Text('Сменить ГМ / Игрок')),
                 PopupMenuItem(value: 'link', child: Text('Привязать персонажа')),
                 PopupMenuItem(value: 'delete', child: Text('Удалить участника')),
               ],
@@ -250,12 +252,30 @@ class _PlayerCampaignHomeScreenState extends State<PlayerCampaignHomeScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final campaign = context.read<CampaignProvider>().selected;
       if (campaign?.id != null) {
-        context.read<SessionProvider>().load(campaign!.id!);
+        await context.read<SessionProvider>().load(campaign!.id!);
+        final session = context.read<SessionProvider>().active;
+        if (session?.id != null) {
+          await context.read<BattleProvider>().loadForSession(
+                campaignId: campaign.id!,
+                sessionId: session!.id!,
+              );
+        }
       }
     });
+  }
+
+  void _openBattle(BuildContext context, int campaignId, int sessionId) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayerBattleScreen(
+          campaignId: campaignId,
+          sessionId: sessionId,
+        ),
+      ),
+    );
   }
 
   Future<void> _leaveCampaign(BuildContext context) async {
@@ -315,7 +335,7 @@ class _PlayerCampaignHomeScreenState extends State<PlayerCampaignHomeScreen> {
       await context.read<CharacterProvider>().loadCharacters();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Персонаж отправлен GM для привязки.')),
+        const SnackBar(content: Text('Персонаж отправлен ГМ для привязки.')),
       );
     } catch (error) {
       if (!mounted) return;
@@ -333,8 +353,8 @@ class _PlayerCampaignHomeScreenState extends State<PlayerCampaignHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer3<CampaignProvider, CharacterProvider, SessionProvider>(
-      builder: (context, campaigns, characters, sessions, _) {
+    return Consumer4<CampaignProvider, CharacterProvider, SessionProvider, BattleProvider>(
+      builder: (context, campaigns, characters, sessions, battles, _) {
         final campaign = campaigns.selected;
         final member = campaigns.currentMembership;
         if (campaign == null || member == null) {
@@ -351,7 +371,7 @@ class _PlayerCampaignHomeScreenState extends State<PlayerCampaignHomeScreen> {
           }
         }
 
-        String gmName = 'GM';
+        String gmName = 'ГМ';
         for (final item in campaigns.members) {
           if (item.role == CampaignRole.gm) {
             gmName = item.name;
@@ -373,6 +393,17 @@ class _PlayerCampaignHomeScreenState extends State<PlayerCampaignHomeScreen> {
               ],
             ),
             actions: [
+              if (battles.isActive && battles.activeSessionId != null)
+                IconButton(
+                  tooltip: '⚔ Боевой режим',
+                  color: AppTheme.primary,
+                  onPressed: () => _openBattle(
+                    context,
+                    campaign.id!,
+                    battles.activeSessionId!,
+                  ),
+                  icon: const Icon(Icons.flash_on),
+                ),
               IconButton(
                 tooltip: 'Покинуть LAN-кампанию',
                 onPressed: () => _leaveCampaign(context),
@@ -383,11 +414,38 @@ class _PlayerCampaignHomeScreenState extends State<PlayerCampaignHomeScreen> {
           body: RefreshIndicator(
             onRefresh: () async {
               await campaigns.selectCampaign(campaign);
-              if (campaign.id != null) await sessions.load(campaign.id!);
+              if (campaign.id != null) {
+                await sessions.load(campaign.id!);
+                final activeSession = sessions.active;
+                if (activeSession?.id != null) {
+                  await battles.loadForSession(
+                    campaignId: campaign.id!,
+                    sessionId: activeSession!.id!,
+                  );
+                }
+              }
             },
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                if (battles.isActive && battles.activeSessionId != null)
+                  Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.flash_on, color: AppTheme.primary),
+                      title: const Text('⚔ Боевой режим'),
+                      subtitle: const Text(
+                        'ГМ запустил бой. Откройте режим, чтобы видеть состояние группы.',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _openBattle(
+                        context,
+                        campaign.id!,
+                        battles.activeSessionId!,
+                      ),
+                    ),
+                  ),
+                if (battles.isActive && battles.activeSessionId != null)
+                  const SizedBox(height: 12),
                 if (campaign.description.isNotEmpty)
                   Card(
                     child: Padding(
@@ -398,7 +456,7 @@ class _PlayerCampaignHomeScreenState extends State<PlayerCampaignHomeScreen> {
                 Card(
                   child: ListTile(
                     leading: const Icon(Icons.shield_outlined, color: AppTheme.primary),
-                    title: const Text('GM'),
+                    title: const Text('ГМ'),
                     subtitle: Text(gmName),
                   ),
                 ),
@@ -429,7 +487,7 @@ class _PlayerCampaignHomeScreenState extends State<PlayerCampaignHomeScreen> {
                             contentPadding: EdgeInsets.zero,
                             leading: CharacterAvatar(character: ownCharacter),
                             title: Text(ownCharacter.name),
-                            subtitle: Text('Уровень ${ownCharacter.level} • HP ${ownCharacter.hp}/${ownCharacter.maxHp}'),
+                            subtitle: Text('Уровень ${ownCharacter.level} • Хиты ${ownCharacter.hp}/${ownCharacter.maxHp}'),
                             trailing: const Icon(Icons.chevron_right),
                             onTap: () => _openCharacter(context, ownCharacter!),
                           ),
@@ -480,7 +538,7 @@ class _PlayerCampaignHomeScreenState extends State<PlayerCampaignHomeScreen> {
                 ),
                 const SizedBox(height: 24),
                 const Text(
-                  'Вы подключены как игрок. Настройки кампании, состав участников и сессии доступны только GM. Вы можете изменять только своего персонажа.',
+                  'Вы подключены как игрок. Настройки кампании, состав участников и сессии доступны только ГМ. Вы можете изменять только своего персонажа.',
                   style: TextStyle(color: AppTheme.textSecondary),
                 ),
               ],

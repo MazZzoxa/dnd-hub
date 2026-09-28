@@ -13,8 +13,8 @@ class XpProgressCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final next = progress.nextLevelXp;
     final text = next == null
-        ? '${progress.currentXp} XP · максимальный уровень'
-        : '${progress.currentXp} / $next XP';
+        ? '${progress.currentXp} опыта · максимальный уровень'
+        : '${progress.currentXp} / $next опыта';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -24,7 +24,7 @@ class XpProgressCard extends StatelessWidget {
             const SizedBox(width: 8),
             Text('Опыт · уровень ${progress.level}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
             const Spacer(),
-            IconButton(onPressed: onHistory, tooltip: 'История XP', icon: const Icon(Icons.history)),
+            IconButton(onPressed: onHistory, tooltip: 'История опыта', icon: const Icon(Icons.history)),
           ]),
           const SizedBox(height: 10),
           LinearProgressIndicator(value: progress.progress, minHeight: 8),

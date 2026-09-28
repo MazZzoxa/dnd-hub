@@ -63,7 +63,7 @@ class CampaignProvider extends ChangeNotifier {
     _loading = true;
     notifyListeners();
     final selectedSyncId = _selected?.syncId;
-    _campaigns = await _service.getCampaigns();
+    _campaigns = _dedupeCampaignCopies(await _service.getCampaigns());
     await _rebuildCategories();
     if (selectedSyncId != null && selectedSyncId.isNotEmpty) {
       final index = _campaigns.indexWhere((campaign) => campaign.syncId == selectedSyncId);
@@ -76,6 +76,41 @@ class CampaignProvider extends ChangeNotifier {
     }
     _loading = false;
     notifyListeners();
+  }
+
+  List<CampaignModel> _dedupeCampaignCopies(List<CampaignModel> source) {
+    final result = <CampaignModel>[];
+    final seen = <String, CampaignModel>{};
+    for (final campaign in source) {
+      final created = campaign.createdAt.toUtc().toIso8601String();
+      final exactCopyKey = '${campaign.name}\u0000${campaign.description}\u0000$created';
+      final syncKey = campaign.syncId.trim().isEmpty
+          ? exactCopyKey
+          : 'sync:${campaign.syncId.trim()}';
+      final existing = seen[exactCopyKey];
+
+      if (existing != null) {
+        // Prefer the network-identified row or the more recently updated row.
+        final preferCurrent = existing.syncId.isEmpty ||
+            (campaign.syncId.isNotEmpty &&
+                campaign.updatedAt.isAfter(existing.updatedAt));
+        if (preferCurrent) {
+          final index = result.indexOf(existing);
+          if (index != -1) result[index] = campaign;
+          seen[exactCopyKey] = campaign;
+        }
+        continue;
+      }
+
+      // Also suppress impossible duplicate sync identities defensively for
+      // databases repaired from older pre-v0.5 schemas.
+      if (seen.containsKey(syncKey)) continue;
+      seen[exactCopyKey] = campaign;
+      seen[syncKey] = campaign;
+      result.add(campaign);
+    }
+    result.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return result;
   }
 
   Future<void> _rebuildCategories() async {
@@ -217,7 +252,7 @@ class CampaignProvider extends ChangeNotifier {
     final name = event.payload['event']?.toString();
     if (name == 'player.joined' && _connectionManager?.role == 'gm') {
       final clientId = event.payload['client_id']?.toString() ?? '';
-      final displayName = event.payload['display_name']?.toString() ?? 'Player';
+      final displayName = event.payload['display_name']?.toString() ?? 'Игрок';
       if (clientId.isNotEmpty && _selected?.id != null && clientId != localClientId) {
         await _service.addNetworkPlayer(campaignId: _selected!.id!, clientId: clientId, name: displayName);
         await _reloadMembers();

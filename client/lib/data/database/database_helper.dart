@@ -30,7 +30,9 @@ class DatabaseHelper {
   // но заполняется отдельно при создании прямо на листе персонажа.
   // v8: добавлено изображение био персонажа (base64 в локальной SQLite).
   // v9: добавлена transport-independent sync_id для сетевой идентичности.
-  static const _dbVersion = 10;
+  // v11: добавлены battles для Battle Mode MVP.
+  // v12: добавлены turns, action requests и append-only combat journal.
+  static const _dbVersion = 12;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -80,8 +82,206 @@ class DatabaseHelper {
   Future<void> _onOpen(Database db) async {
     await _ensureV03Schema(db);
     await _ensureBioImageColumn(db);
-    await _ensureSyncIdSchema(db);
     await _ensureNetworkIdentitySchema(db);
+    await _ensureV06Schema(db);
+    await _ensureSyncIdSchema(db);
+    await _ensureBattleWorkspaceSchema(db);
+  }
+
+  Future<void> _ensureV06Schema(Database db) async {
+    final tableRows = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'battles'",
+    );
+
+    if (tableRows.isEmpty) {
+      await _createBattlesTable(db);
+    } else {
+      final columns = await db.rawQuery('PRAGMA table_info(battles)');
+      final columnNames = columns
+          .map((row) => row['name']?.toString())
+          .whereType<String>()
+          .toSet();
+
+      const requiredColumns = <String>{
+        'sync_id',
+        'id',
+        'campaign_id',
+        'session_id',
+        'status',
+        'created_at',
+        'started_at',
+        'ended_at',
+        'updated_at',
+      };
+
+      if (!requiredColumns.every(columnNames.contains)) {
+        // A previous pre-release v0.6 build could have created a battles
+        // table with an older/incomplete schema while still stamping the
+        // database as version 11. In that case sqflite does not call
+        // onUpgrade again, so we repair the table here.
+        final countRows = await db.rawQuery('SELECT COUNT(*) AS count FROM battles');
+        final rowCount = ((countRows.first['count'] as num?) ?? 0).toInt();
+
+        if (rowCount == 0) {
+          await db.execute('DROP TABLE battles');
+          await _createBattlesTable(db);
+        } else {
+          // Keep unexpected legacy data instead of silently deleting it.
+          // Battle was introduced in v0.6, so this is only expected for a
+          // pre-release build. The active schema is recreated separately.
+          final legacyExists = await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'battles_legacy_v06'",
+          );
+          if (legacyExists.isNotEmpty) {
+            await db.execute('DROP TABLE battles_legacy_v06');
+          }
+
+          final indexRows = await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'battles' AND sql IS NOT NULL",
+          );
+          for (final row in indexRows) {
+            final name = row['name']?.toString();
+            if (name != null && name.isNotEmpty) {
+              await db.execute('DROP INDEX IF EXISTS "$name"');
+            }
+          }
+
+          await db.execute('ALTER TABLE battles RENAME TO battles_legacy_v06');
+          await _createBattlesTable(db);
+        }
+      }
+    }
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_battles_campaign ON battles(campaign_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_battles_session ON battles(session_id)',
+    );
+    await db.execute(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_battles_one_active_session ON battles(session_id) WHERE status = 'active'",
+    );
+    await db.execute(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_battles_sync_id ON battles(sync_id) WHERE sync_id <> ''",
+    );
+
+    final rows = await db.query(
+      'battles',
+      columns: const ['rowid', 'sync_id'],
+      where: "sync_id = '' OR sync_id IS NULL",
+    );
+    if (rows.isEmpty) return;
+    await db.transaction((txn) async {
+      for (final row in rows) {
+        await txn.rawUpdate(
+          "UPDATE battles SET sync_id = lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6))) WHERE rowid = ?",
+          [row['rowid']],
+        );
+      }
+    });
+  }
+
+  Future<void> _createBattlesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS battles (
+        sync_id TEXT NOT NULL DEFAULT '',
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_id INTEGER NOT NULL,
+        session_id INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('active', 'completed')),
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        ended_at TEXT,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES campaign_sessions (id) ON DELETE CASCADE
+      )
+    ''');
+  }
+
+  Future<void> _ensureBattleWorkspaceSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS battle_turns (
+        sync_id TEXT NOT NULL DEFAULT '',
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        battle_sync_id TEXT NOT NULL,
+        character_sync_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('active', 'completed')),
+        started_at TEXT NOT NULL,
+        ended_at TEXT
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_battle_turns_battle ON battle_turns(battle_sync_id, sequence ASC)');
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_battle_turns_active ON battle_turns(battle_sync_id) WHERE status = 'active'");
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_battle_turns_sync_id ON battle_turns(sync_id) WHERE sync_id <> ''");
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS battle_action_requests (
+        sync_id TEXT NOT NULL DEFAULT '',
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        battle_sync_id TEXT NOT NULL,
+        turn_sync_id TEXT NOT NULL,
+        turn_sequence INTEGER NOT NULL,
+        actor_character_sync_id TEXT NOT NULL,
+        action_type TEXT NOT NULL,
+        action_sync_id TEXT NOT NULL DEFAULT '',
+        action_name TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_character_sync_id TEXT NOT NULL DEFAULT '',
+        target_label TEXT NOT NULL DEFAULT '',
+        attack_formula TEXT NOT NULL DEFAULT '',
+        attack_total INTEGER,
+        effect_formula TEXT NOT NULL DEFAULT '',
+        effect_type TEXT NOT NULL DEFAULT 'none',
+        effect_total INTEGER,
+        status TEXT NOT NULL,
+        resolution_note TEXT NOT NULL DEFAULT '',
+        metadata TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        resolved_at TEXT,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_battle_action_requests_battle ON battle_action_requests(battle_sync_id, created_at ASC)');
+    await db.execute("CREATE INDEX IF NOT EXISTS idx_battle_action_requests_pending ON battle_action_requests(battle_sync_id) WHERE status = 'pending_gm'");
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_battle_action_requests_sync_id ON battle_action_requests(sync_id) WHERE sync_id <> ''");
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS battle_log_entries (
+        sync_id TEXT NOT NULL DEFAULT '',
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        battle_sync_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        actor_character_sync_id TEXT NOT NULL DEFAULT '',
+        target_character_sync_id TEXT NOT NULL DEFAULT '',
+        target_label TEXT NOT NULL DEFAULT '',
+        action_sync_id TEXT NOT NULL DEFAULT '',
+        action_request_sync_id TEXT NOT NULL DEFAULT '',
+        amount INTEGER,
+        turn_sequence INTEGER,
+        metadata TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_battle_log_entries_battle ON battle_log_entries(battle_sync_id, created_at DESC, id DESC)');
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_battle_log_entries_sync_id ON battle_log_entries(sync_id) WHERE sync_id <> ''");
+
+    for (final row in await db.query('battle_turns', columns: const ['rowid', 'sync_id'], where: "sync_id = '' OR sync_id IS NULL")) {
+      await db.rawUpdate(
+        "UPDATE battle_turns SET sync_id = lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6))) WHERE rowid = ?",
+        [row['rowid']],
+      );
+    }
+    for (final table in const ['battle_action_requests', 'battle_log_entries']) {
+      final rows = await db.query(table, columns: const ['rowid', 'sync_id'], where: "sync_id = '' OR sync_id IS NULL");
+      for (final row in rows) {
+        await db.rawUpdate(
+          "UPDATE $table SET sync_id = lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6))) WHERE rowid = ?",
+          [row['rowid']],
+        );
+      }
+    }
   }
 
   Future<void> _ensureBioImageColumn(Database db) async {
@@ -299,6 +499,25 @@ class DatabaseHelper {
     await db.execute('CREATE INDEX idx_campaign_sessions_campaign ON campaign_sessions(campaign_id)');
     await db.execute('CREATE INDEX idx_campaign_sessions_status ON campaign_sessions(campaign_id, status)');
     await db.execute("CREATE UNIQUE INDEX idx_campaign_one_active_session ON campaign_sessions(campaign_id) WHERE status = 'active'");
+
+    await db.execute('''
+      CREATE TABLE battles (
+        sync_id TEXT NOT NULL DEFAULT '',
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        campaign_id INTEGER NOT NULL,
+        session_id INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('active', 'completed')),
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        ended_at TEXT,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES campaign_sessions (id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE INDEX idx_battles_campaign ON battles(campaign_id)');
+    await db.execute('CREATE INDEX idx_battles_session ON battles(session_id)');
+    await db.execute("CREATE UNIQUE INDEX idx_battles_one_active_session ON battles(session_id) WHERE status = 'active'");
 
     await db.execute('''
       CREATE TABLE xp_transactions (
@@ -687,6 +906,31 @@ class DatabaseHelper {
           value TEXT NOT NULL
         )
       ''');
+    }
+
+    if (oldVersion < 11) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS battles (
+          sync_id TEXT NOT NULL DEFAULT '',
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          campaign_id INTEGER NOT NULL,
+          session_id INTEGER NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('active', 'completed')),
+          created_at TEXT NOT NULL,
+          started_at TEXT,
+          ended_at TEXT,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (campaign_id) REFERENCES campaigns (id) ON DELETE CASCADE,
+          FOREIGN KEY (session_id) REFERENCES campaign_sessions (id) ON DELETE CASCADE
+        )
+      ''');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_battles_campaign ON battles(campaign_id)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_battles_session ON battles(session_id)');
+      await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_battles_one_active_session ON battles(session_id) WHERE status = 'active'");
+    }
+
+    if (oldVersion < 12) {
+      await _ensureBattleWorkspaceSchema(db);
     }
   }
 

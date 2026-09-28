@@ -2,7 +2,7 @@ enum CampaignRole { gm, player }
 
 extension CampaignRoleX on CampaignRole {
   String get dbValue => this == CampaignRole.gm ? 'gm' : 'player';
-  String get label => this == CampaignRole.gm ? 'GM' : 'Player';
+  String get label => this == CampaignRole.gm ? 'ГМ' : 'Игрок';
   static CampaignRole fromDb(String? value) => value == 'gm' ? CampaignRole.gm : CampaignRole.player;
 }
 

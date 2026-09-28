@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-/// Transport-independent envelope used by D&D Hub v0.5 LAN sync.
+/// Transport-independent envelope used by D&D Hub v0.5+ LAN sync.
 class NetworkMessage {
   static const int protocolVersion = 2;
 

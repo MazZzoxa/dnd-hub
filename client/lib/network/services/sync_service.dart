@@ -12,8 +12,11 @@ class SyncService {
   StreamSubscription<String>? _messages;
   StreamSubscription<dynamic>? _connectionStates;
   final StreamController<NetworkMessage> _events = StreamController.broadcast();
+  Future<void> _messageQueue = Future<void>.value();
 
   bool _publishingSnapshot = false;
+  final Map<String, Completer<NetworkMessage>> _pendingAcks = {};
+  final Map<String, NetworkMessage> _recentCommandResponses = {};
 
   SyncService(this.connectionManager, {LocalSyncStore? store})
       : store = store ?? LocalSyncStore() {
@@ -24,6 +27,7 @@ class SyncService {
   Stream<NetworkMessage> get events => _events.stream;
   bool get connected => connectionManager.connected;
   String get clientId => connectionManager.clientId;
+  String get role => connectionManager.role;
 
   Future<void> publishCharacter(CharacterModel character) async {
     await publishEntity('character', character.toMap());
@@ -119,6 +123,174 @@ class SyncService {
     }
   }
 
+  Future<void> startBattle({required String sessionSyncId}) async {
+    await _sendAndWaitForAck(
+      'battle.start',
+      payload: {'session_sync_id': sessionSyncId},
+    );
+  }
+
+  Future<void> endBattle({required String battleSyncId}) async {
+    await _sendAndWaitForAck(
+      'battle.end',
+      payload: {'battle_sync_id': battleSyncId},
+    );
+  }
+
+  Future<void> applyDamage({
+    required String battleSyncId,
+    required String characterSyncId,
+    required int amount,
+  }) async {
+    await _sendAndWaitForAck(
+      'battle.damage',
+      payload: {
+        'battle_sync_id': battleSyncId,
+        'character_sync_id': characterSyncId,
+        'amount': amount,
+      },
+    );
+  }
+
+  Future<void> heal({
+    required String battleSyncId,
+    required String characterSyncId,
+    required int amount,
+  }) async {
+    await _sendAndWaitForAck(
+      'battle.heal',
+      payload: {
+        'battle_sync_id': battleSyncId,
+        'character_sync_id': characterSyncId,
+        'amount': amount,
+      },
+    );
+  }
+
+  Future<void> setTemporaryHp({
+    required String battleSyncId,
+    required String characterSyncId,
+    required int amount,
+  }) async {
+    await _sendAndWaitForAck(
+      'battle.temp_hp',
+      payload: {
+        'battle_sync_id': battleSyncId,
+        'character_sync_id': characterSyncId,
+        'amount': amount,
+      },
+    );
+  }
+
+  Future<void> startBattleTurn({
+    required String battleSyncId,
+    required String characterSyncId,
+  }) async {
+    await _sendAndWaitForAck(
+      'battle.turn.start',
+      payload: {
+        'battle_sync_id': battleSyncId,
+        'character_sync_id': characterSyncId,
+      },
+    );
+  }
+
+  Future<void> endBattleTurn({
+    required String battleSyncId,
+    String? turnSyncId,
+  }) async {
+    await _sendAndWaitForAck(
+      'battle.turn.end',
+      payload: {
+        'battle_sync_id': battleSyncId,
+        'turn_sync_id': turnSyncId,
+      },
+    );
+  }
+
+  Future<void> submitBattleAction(Map<String, dynamic> payload) async {
+    await _sendAndWaitForAck('battle.action.submit', payload: payload);
+  }
+
+  Future<void> approveBattleAction({required String actionRequestSyncId, String note = ''}) async {
+    await _sendAndWaitForAck(
+      'battle.action.approve',
+      payload: {
+        'action_request_sync_id': actionRequestSyncId,
+        'note': note,
+      },
+    );
+  }
+
+  Future<void> modifyBattleAction({
+    required String actionRequestSyncId,
+    required Map<String, dynamic> modifications,
+    String note = '',
+  }) async {
+    await _sendAndWaitForAck(
+      'battle.action.modify',
+      payload: {
+        'action_request_sync_id': actionRequestSyncId,
+        'modifications': modifications,
+        'note': note,
+      },
+    );
+  }
+
+  Future<void> rejectBattleAction({
+    required String actionRequestSyncId,
+    String reason = '',
+  }) async {
+    await _sendAndWaitForAck(
+      'battle.action.reject',
+      payload: {
+        'action_request_sync_id': actionRequestSyncId,
+        'reason': reason,
+      },
+    );
+  }
+
+  Future<NetworkMessage> _sendAndWaitForAck(
+    String command, {
+    required Map<String, dynamic> payload,
+  }) async {
+    final commandId = await connectionManager.sendCommand(
+      command,
+      payload: payload,
+    );
+    if (commandId == null) {
+      throw StateError('Нет подключения к серверу ГМ.');
+    }
+
+    final recent = _recentCommandResponses.remove(commandId);
+    if (recent != null) {
+      if (recent.payload['event']?.toString() == 'error') {
+        throw StateError(
+          recent.payload['message']?.toString() ??
+              'Сервер отклонил боевую команду.',
+        );
+      }
+      return recent;
+    }
+
+    final completer = Completer<NetworkMessage>();
+    _pendingAcks[commandId] = completer;
+    try {
+      final response = await completer.future.timeout(
+        const Duration(seconds: 5),
+      );
+      if (response.payload['event']?.toString() == 'error') {
+        throw StateError(
+          response.payload['message']?.toString() ??
+              'Сервер отклонил боевую команду.',
+        );
+      }
+      return response;
+    } finally {
+      _pendingAcks.remove(commandId);
+    }
+  }
+
   Future<void> ping() async {
     await connectionManager.sendCommand('ping', payload: const {});
   }
@@ -133,11 +305,59 @@ class SyncService {
     }
   }
 
-  Future<void> _onMessage(String raw) async {
+  void _onMessage(String raw) {
+    final next = _messageQueue.then((_) => _processMessage(raw));
+    _messageQueue = next.catchError((_) {});
+  }
+
+  Future<void> _processMessage(String raw) async {
     try {
       final message = NetworkMessage.fromEncoded(raw);
       if (message.protocol != NetworkMessage.protocolVersion) return;
       final eventName = message.payload['event']?.toString();
+      final commandId = message.payload['command_id']?.toString();
+      if ((eventName == 'ack' || eventName == 'error') && commandId != null) {
+        final pending = _pendingAcks[commandId];
+        if (pending != null && !pending.isCompleted) {
+          pending.complete(message);
+        } else {
+          _recentCommandResponses[commandId] = message;
+          if (_recentCommandResponses.length > 64) {
+            _recentCommandResponses.remove(_recentCommandResponses.keys.first);
+          }
+        }
+      }
+
+      if (eventName == 'battle.started' ||
+          eventName == 'battle.state' ||
+          eventName == 'battle.snapshot' ||
+          eventName == 'battle.ended') {
+        final battle = message.payload['battle'];
+        if (battle is Map) {
+          await store.applyEntity(
+            'battle',
+            battle.map((key, value) => MapEntry(key.toString(), value)),
+          );
+        }
+      }
+
+      final domainEntity = message.payload['entity']?.toString();
+      final domainData = message.payload['data'];
+      if (domainEntity != null && domainData is Map &&
+          (eventName?.startsWith('battle.') ?? false)) {
+        await store.applyEntity(
+          domainEntity,
+          domainData.map((key, value) => MapEntry(key.toString(), value)),
+        );
+      }
+
+      final inlineJournal = message.payload['journal_entry'];
+      if (inlineJournal is Map && (eventName?.startsWith('battle.') ?? false)) {
+        await store.applyEntity(
+          'battle_log_entry',
+          inlineJournal.map((key, value) => MapEntry(key.toString(), value)),
+        );
+      }
 
       if (eventName == 'state.upsert') {
         final entity = message.payload['entity']?.toString() ?? '';
@@ -174,6 +394,13 @@ class SyncService {
   }
 
   Future<void> dispose() async {
+    for (final completer in _pendingAcks.values) {
+      if (!completer.isCompleted) {
+        completer.completeError(StateError('Сетевой сервис завершён.'));
+      }
+    }
+    _pendingAcks.clear();
+    _recentCommandResponses.clear();
     await _messages?.cancel();
     await _connectionStates?.cancel();
     await _events.close();

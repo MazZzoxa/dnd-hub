@@ -26,7 +26,7 @@ class _CampaignFormScreenState extends State<CampaignFormScreen> {
 
   Future<void> _save() async {
     if (_name.text.trim().isEmpty || _gm.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Название кампании и имя GM обязательны.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Название кампании и имя ГМ обязательны.')));
       return;
     }
     setState(() => _saving = true);
@@ -55,7 +55,7 @@ class _CampaignFormScreenState extends State<CampaignFormScreen> {
           const SizedBox(height: 14),
           TextField(controller: _description, maxLines: 3, decoration: const InputDecoration(labelText: 'Описание')),
           const SizedBox(height: 14),
-          TextField(controller: _gm, decoration: const InputDecoration(labelText: 'Имя GM')),
+          TextField(controller: _gm, decoration: const InputDecoration(labelText: 'Имя ГМ')),
           const SizedBox(height: 22),
           FilledButton.icon(onPressed: _saving ? null : _save, icon: const Icon(Icons.save_outlined), label: Text(_saving ? 'Создание…' : 'Создать кампанию')),
         ],

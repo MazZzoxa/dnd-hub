@@ -12,6 +12,17 @@ class CampaignRepository {
     return rows.map(CampaignModel.fromMap).toList();
   }
 
+  Future<CampaignModel?> getBySyncId(String syncId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'campaigns',
+      where: 'sync_id = ?',
+      whereArgs: [syncId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : CampaignModel.fromMap(rows.first);
+  }
+
   Future<CampaignModel?> getById(int id) async {
     final db = await _database.database;
     final rows = await db.query('campaigns', where: 'id = ?', whereArgs: [id], limit: 1);

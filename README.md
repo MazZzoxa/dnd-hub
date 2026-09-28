@@ -2,8 +2,8 @@
 
 A local-first, cross-platform D&D character manager built with Flutter — a fast, offline digital character sheet for use during actual game sessions.
 
-**Current version:** `v0.5.0`  
-**Status:** `v0.5.0` completes the LAN multiplayer foundation: local GM server, LAN discovery, campaign state sync, automatic Player membership, separate GM/Player interfaces, reconnect/resume, campaign permissions and player disconnect. Wi-Fi P2P and Bluetooth remain future transport options.  
+**Current version:** `v0.6.1`  
+**Status:** `v0.6.1` extends Battle Mode into a synchronized combat workspace: GM-controlled turns, character Overview/Actions, integrated dice rolls, Self/Ally/External targets, Action Requests with GM approval/modification/rejection, and an append-only Combat Journal. The app remains a combat-management tool rather than a full combat engine.  
 **Author:** [@MazZzoxa](https://github.com/MazZzoxa)
 
 🇬🇧 [English](#-dd-hub) · 🇷🇺 [Русский](#-dd-hub-1)
@@ -22,7 +22,7 @@ D&D Hub is a local-first digital D&D character manager designed to be used direc
 
 The main principle is **local-first**: no account and no mandatory Internet connection are required. Character, campaign and progression data remain stored locally in SQLite. During a hosted local game, the GM runs a temporary local FastAPI/WebSocket server and player devices keep a local SQLite replica. The GM and Player use different campaign interfaces and permissions.
 
-### Features — v0.5.0
+### Features — v0.6.1
 
 **Character management**
 
@@ -69,6 +69,22 @@ The main principle is **local-first**: no account and no mandatory Internet conn
 - Full campaign snapshots for initial state and recovery
 - Automatic reconnect with `resume(last_sequence)` and snapshot fallback
 - Local SQLite remains the persistent replica on every device
+
+**Battle Workspace — v0.6.1**
+
+- Battle remains a separate persistent entity linked to a Session
+- GM-controlled `Current Turn` with sequential `BattleTurn` history
+- Initiative displayed as reference information without automatic turn ordering
+- Battle Character View with `Overview` and `Actions` tabs
+- Actions reuse existing attacks, spells, abilities and items instead of creating parallel content databases
+- User-defined attack/effect formulas with an integrated Action Dice flow
+- Target types: `Self`, `Ally` and text-only `External`
+- Player `Action Request` flow with `Pending GM` → `Approved` / `Modified` / `Rejected` states
+- GM can edit target/formulas/results before approval; original submitted values are preserved in request metadata
+- Self/Ally approved effects can update synchronized Character State; External targets never modify enemy state
+- Structured append-only Combat Journal with the last 100 events restored to reconnecting clients
+- Existing direct GM Battle tools for Damage / Healing / Temporary HP remain available
+- No enemies/NPCs, automatic initiative tracking, rounds, automatic turn order, conditions, battle map or automatic combat-rule resolution
 
 **Interface**
 
@@ -169,7 +185,7 @@ The project follows a **local-first → library → campaign → GM → sync →
 | **v0.3.1** ✅ | Android migration, backup/restore and import fixes |
 | **v0.4** ✅ | GM Mode, GM character viewer and local Session Tools |
 | **v0.5.0** ✅ | LAN/WebSocket networking, automatic Player membership, GM/Player interfaces, campaign permissions and recovery |
-| v0.6 | Battle Mode |
+| **v0.6.1** ✅ | Battle Workspace: turns, Actions, targets, Action Requests, GM review and Combat Journal |
 | v0.7 | Extended session/gameplay tools |
 | v1.0 | Complete core product |
 | v1.1+ | World system, AI assistant, AI GM |
@@ -194,7 +210,7 @@ D&D Hub — кроссплатформенный **local-first** менедже�
 
 Главный принцип — **local-first**: аккаунт, сервер и обязательное подключение к Интернету не требуются. Данные персонажей, кампаний и прогрессии хранятся локально в SQLite. Во время локальной игры GM запускает временный локальный FastAPI/WebSocket-сервер, а устройства игроков сохраняют локальную SQLite-реплику. Интерфейсы и права GM и Player различаются.
 
-### Возможности — v0.5.0
+### Возможности — v0.6.1
 
 **Персонажи**
 
@@ -248,6 +264,22 @@ D&D Hub — кроссплатформенный **local-first** менедже�
 - При обрыве соединения клиент автоматически пытается переподключиться; после reconnect отправляется `resume` по последнему sequence, а при необходимости сервер отдаёт полный snapshot.
 - Локальная SQLite остаётся постоянной репликой; серверная память существует только в рамках запущенной GM-сессии.
 - Wi-Fi P2P и Bluetooth пока не являются частью реализованного `v0.5.0` и остаются отложенными transport-опциями.
+
+### Battle Workspace — v0.6.1
+
+- Battle запускается только внутри активной Session и не завершает её.
+- GM управляет `Current Turn`; каждый ход получает последовательный номер и сохраняется в истории.
+- Initiative отображается как справочная информация и не превращается в автоматический трекер.
+- Внутри Battle доступен `Overview` и отдельная вкладка `Actions`.
+- Actions используют уже существующие атаки, заклинания, способности и предметы без создания параллельных баз.
+- Формулы бросков задаются пользователем; Dice Roller встроен непосредственно в действие.
+- Поддерживаются цели `Self`, `Ally` и текстовая `External`.
+- Player отправляет `Action Request`; GM может принять, изменить или отклонить его.
+- При изменении исходные значения Player сохраняются в metadata запроса.
+- Подтверждённые эффекты по Self/Ally могут изменить синхронизированное состояние персонажа; External не изменяет состояние врагов.
+- Combat Journal хранится структурированно, работает как append-only история и восстанавливает последние 100 событий при reconnect.
+- Прямые GM-инструменты Damage / Healing / Temporary HP из v0.6 остаются доступны.
+- Battle Workspace не реализует врагов/NPC, автоматический initiative tracker, раунды, автоматический порядок ходов, conditions, карту боя или автоматическое применение боевых правил.
 
 ### Запуск проекта
 
@@ -309,7 +341,7 @@ docs/
 | **v0.3.1** ✅ | Исправления Android, backup/restore и импорта |
 | **v0.4** ✅ | GM Mode, просмотр персонажей и локальные Session Tools |
 | **v0.5.0** ✅ | Локальный GM-сервер + LAN-синхронизация в реальном времени, роли GM/Player и управление участниками |
-| v0.6 | Боевой режим |
+| **v0.6.1** ✅ | Battle Workspace: ходы, Actions, цели, Action Requests, GM review и Combat Journal |
 | v0.7 | Расширенные инструменты сессии/игрового процесса |
 | v1.0 | Завершённый базовый продукт |
 | v1.1+ | Мир кампании, AI-ассистент, AI GM |

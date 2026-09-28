@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../data/database/database_helper.dart';
 import 'sync_ids.dart';
 
@@ -14,6 +16,10 @@ class LocalSyncStore {
     'campaign',
     'campaign_member',
     'session',
+    'battle',
+    'battle_turn',
+    'battle_action_request',
+    'battle_log_entry',
     'character',
     'item',
     'spell',
@@ -83,6 +89,21 @@ class LocalSyncStore {
     return syncId;
   }
 
+  Future<String> _sessionSyncId(int sessionId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'campaign_sessions',
+      columns: const ['sync_id'],
+      where: 'id = ?',
+      whereArgs: [sessionId],
+      limit: 1,
+    );
+    if (rows.isEmpty) throw StateError('Session $sessionId was not found.');
+    final syncId = rows.first['sync_id']?.toString() ?? '';
+    if (syncId.isEmpty) throw StateError('Session $sessionId has no sync_id.');
+    return syncId;
+  }
+
   Future<String> _campaignSyncId(int campaignId) async {
     final db = await _database.database;
     final rows = await db.query(
@@ -96,6 +117,15 @@ class LocalSyncStore {
     final syncId = rows.first['sync_id']?.toString() ?? '';
     if (syncId.isEmpty) throw StateError('Campaign $campaignId has no sync_id.');
     return syncId;
+  }
+
+  Future<String?> dbCampaignByBattleSyncId(String battleSyncId) async {
+    final db = await _database.database;
+    final rows = await db.rawQuery(
+      'SELECT c.sync_id FROM battles b JOIN campaigns c ON c.id = b.campaign_id WHERE b.sync_id = ? LIMIT 1',
+      [battleSyncId],
+    );
+    return rows.isEmpty ? null : rows.first['sync_id']?.toString();
   }
 
   Future<Map<String, dynamic>> preparePayload(
@@ -135,6 +165,23 @@ class LocalSyncStore {
         if (campaignId == null) throw StateError('Session has no campaign_id.');
         data['campaign_sync_id'] = await _campaignSyncId(campaignId);
         break;
+      case 'battle':
+        final campaignId = (data.remove('campaign_id') as num?)?.toInt();
+        if (campaignId == null) throw StateError('У боя отсутствует идентификатор кампании.');
+        data['campaign_sync_id'] = await _campaignSyncId(campaignId);
+        final sessionId = (data.remove('session_id') as num?)?.toInt();
+        if (sessionId == null) throw StateError('У боя отсутствует идентификатор сессии.');
+        data['session_sync_id'] = await _sessionSyncId(sessionId);
+        break;
+      case 'battle_turn':
+      case 'battle_action_request':
+      case 'battle_log_entry':
+        final battleSyncId = data['battle_sync_id']?.toString().trim() ?? '';
+        if (battleSyncId.isEmpty) throw StateError('$entity has no battle_sync_id.');
+        final campaign = await dbCampaignByBattleSyncId(battleSyncId);
+        if (campaign == null) throw StateError('$entity references an unknown battle.');
+        data['battle_sync_id'] = battleSyncId;
+        break;
       case 'item':
       case 'spell':
       case 'ability':
@@ -168,7 +215,19 @@ class LocalSyncStore {
         return data['sync_id']?.toString() == campaignSyncId;
       case 'campaign_member':
       case 'session':
+      case 'battle':
         return data['campaign_sync_id']?.toString() == campaignSyncId;
+      case 'battle_turn':
+      case 'battle_action_request':
+      case 'battle_log_entry':
+        final battleSyncId = data['battle_sync_id']?.toString() ?? '';
+        if (battleSyncId.isEmpty) return false;
+        final db = await _database.database;
+        final rows = await db.rawQuery(
+          'SELECT b.sync_id FROM battles b JOIN campaigns c ON c.id = b.campaign_id WHERE b.sync_id = ? AND c.sync_id = ? LIMIT 1',
+          [battleSyncId, campaignSyncId],
+        );
+        return rows.isNotEmpty;
       case 'character':
       case 'item':
       case 'spell':
@@ -248,6 +307,49 @@ class LocalSyncStore {
       data.remove('campaign_id');
       data['campaign_sync_id'] = campaignSyncId;
       result.add({'entity': 'session', 'data': data});
+    }
+
+    final battleRows = await db.query(
+      'battles',
+      where: 'campaign_id = ?',
+      whereArgs: [campaignId],
+      orderBy: 'id',
+    );
+    final sessionSyncById = <int, String>{
+      for (final row in sessionRows)
+        if (row['id'] is int) row['id'] as int: row['sync_id']?.toString() ?? '',
+    };
+    final battleSyncIds = <String>{};
+    for (final row in battleRows) {
+      final data = Map<String, dynamic>.from(row)..remove('id');
+      data.remove('campaign_id');
+      data.remove('session_id');
+      data['campaign_sync_id'] = campaignSyncId;
+      data['session_sync_id'] = sessionSyncById[row['session_id'] as int] ?? '';
+      final battleSyncId = data['sync_id']?.toString() ?? '';
+      if (battleSyncId.isNotEmpty) battleSyncIds.add(battleSyncId);
+      result.add({'entity': 'battle', 'data': data});
+    }
+
+    if (battleSyncIds.isNotEmpty) {
+      final battlePlaceholders = List.filled(battleSyncIds.length, '?').join(',');
+      final workspaceSpecs = [
+        ('battle_turns', 'battle_turn'),
+        ('battle_action_requests', 'battle_action_request'),
+        ('battle_log_entries', 'battle_log_entry'),
+      ];
+      for (final spec in workspaceSpecs) {
+        final rows = await db.query(
+          spec.$1,
+          where: 'battle_sync_id IN ($battlePlaceholders)',
+          whereArgs: battleSyncIds.toList(),
+          orderBy: 'id ASC',
+        );
+        for (final row in rows) {
+          final data = Map<String, dynamic>.from(row)..remove('id');
+          result.add({'entity': spec.$2, 'data': data});
+        }
+      }
     }
 
     if (characterIds.isEmpty) return result;
@@ -338,7 +440,11 @@ class LocalSyncStore {
         'character' => 1,
         'campaign_member' => 2,
         'session' => 2,
-        _ => 3,
+        'battle' => 3,
+        'battle_turn' => 4,
+        'battle_action_request' => 5,
+        'battle_log_entry' => 6,
+        _ => 7,
       };
     }
     entities.sort((a, b) => priority(a).compareTo(priority(b)));
@@ -380,6 +486,47 @@ class LocalSyncStore {
         where: 'campaign_id = ? AND sync_id NOT IN (${List.filled(sessionSyncIds.isEmpty ? 1 : sessionSyncIds.length, '?').join(',')})',
         whereArgs: [campaignId, ...(sessionSyncIds.isEmpty ? ['__none__'] : sessionSyncIds.toList())],
       );
+
+      final existingBattleRows = await txn.query(
+        'battles',
+        columns: const ['sync_id'],
+        where: 'campaign_id = ?',
+        whereArgs: [campaignId],
+      );
+      final previousBattleSyncIds = [
+        for (final row in existingBattleRows) row['sync_id']?.toString() ?? '',
+      ].where((id) => id.isNotEmpty).toList();
+      final battleSyncIds = present['battle'] ?? const <String>{};
+      await txn.delete(
+        'battles',
+        where: 'campaign_id = ? AND sync_id NOT IN (${List.filled(battleSyncIds.isEmpty ? 1 : battleSyncIds.length, '?').join(',')})',
+        whereArgs: [campaignId, ...(battleSyncIds.isEmpty ? ['__none__'] : battleSyncIds.toList())],
+      );
+
+      for (final spec in [
+        ('battle_turns', 'battle_turn'),
+        ('battle_action_requests', 'battle_action_request'),
+        ('battle_log_entries', 'battle_log_entry'),
+      ]) {
+        final syncIds = present[spec.$2] ?? const <String>{};
+        final scopedBattleSyncIds = <String>{
+          ...previousBattleSyncIds,
+          ...battleSyncIds,
+        }.where((id) => id.isNotEmpty).toList();
+        if (scopedBattleSyncIds.isEmpty) {
+          continue;
+        }
+        final battlePlaceholders = List.filled(scopedBattleSyncIds.length, '?').join(',');
+        final syncPlaceholders = List.filled(syncIds.isEmpty ? 1 : syncIds.length, '?').join(',');
+        await txn.delete(
+          spec.$1,
+          where: 'battle_sync_id IN ($battlePlaceholders) AND sync_id NOT IN ($syncPlaceholders)',
+          whereArgs: [
+            ...scopedBattleSyncIds,
+            ...(syncIds.isEmpty ? ['__none__'] : syncIds.toList()),
+          ],
+        );
+      }
 
       if (linkedCharacterSyncIds.isEmpty) return;
       final placeholders = List.filled(linkedCharacterSyncIds.length, '?').join(',');
@@ -437,7 +584,7 @@ class LocalSyncStore {
 
     switch (entity) {
       case 'campaign':
-        await _upsert(db, 'campaigns', data);
+        await _upsertCampaign(db, data);
         return;
       case 'character':
         data.remove('id');
@@ -477,6 +624,33 @@ class LocalSyncStore {
         if (campaignId == null) return;
         data['campaign_id'] = campaignId;
         await _upsert(db, 'campaign_sessions', data);
+        return;
+      case 'battle':
+        final campaignId = await _localIdBySync(
+          db,
+          'campaigns',
+          data.remove('campaign_sync_id')?.toString(),
+        );
+        final sessionId = await _localIdBySync(
+          db,
+          'campaign_sessions',
+          data.remove('session_sync_id')?.toString(),
+        );
+        if (campaignId == null || sessionId == null) return;
+        data['campaign_id'] = campaignId;
+        data['session_id'] = sessionId;
+        await _upsert(db, 'battles', data);
+        return;
+      case 'battle_turn':
+        await _upsert(db, 'battle_turns', data);
+        return;
+      case 'battle_action_request':
+      case 'battle_log_entry':
+        final metadata = data['metadata'];
+        if (metadata is Map) {
+          data['metadata'] = jsonEncode(metadata);
+        }
+        await _upsert(db, _tableFor(entity), data);
         return;
       case 'item':
       case 'spell':
@@ -526,6 +700,74 @@ class LocalSyncStore {
       limit: 1,
     );
     return rows.isEmpty ? null : rows.first['id'] as int?;
+  }
+
+  Future<void> _upsertCampaign(dynamic db, Map<String, dynamic> data) async {
+    final syncId = _requireSyncId(data);
+    final values = Map<String, dynamic>.from(data)..remove('id');
+
+    final existing = await db.query(
+      'campaigns',
+      columns: const ['id'],
+      where: 'sync_id = ?',
+      whereArgs: [syncId],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
+      await db.update(
+        'campaigns',
+        values,
+        where: 'id = ?',
+        whereArgs: [existing.first['id']],
+      );
+      return;
+    }
+
+    // A previous LAN implementation could leave a local placeholder/copy of
+    // the same campaign with a different sync_id. Adopt that row instead of
+    // creating another visible campaign, but only when the identity is exact
+    // and the local row has no session history and only the initial GM member.
+    final name = values['name']?.toString() ?? '';
+    final description = values['description']?.toString() ?? '';
+    final createdAt = values['created_at']?.toString() ?? '';
+    final candidates = await db.query(
+      'campaigns',
+      columns: const ['id', 'sync_id'],
+      where: 'name = ? AND description = ? AND created_at = ? AND sync_id <> ?',
+      whereArgs: [name, description, createdAt, syncId],
+      orderBy: 'id',
+    );
+
+    for (final candidate in candidates) {
+      final campaignId = candidate['id'] as int;
+      final sessions = await db.query(
+        'campaign_sessions',
+        columns: const ['id'],
+        where: 'campaign_id = ?',
+        whereArgs: [campaignId],
+        limit: 1,
+      );
+      if (sessions.isNotEmpty) continue;
+
+      final members = await db.query(
+        'campaign_members',
+        columns: const ['id', 'role'],
+        where: 'campaign_id = ?',
+        whereArgs: [campaignId],
+      );
+      if (members.length > 1) continue;
+      if (members.isNotEmpty && members.first['role']?.toString() != 'gm') continue;
+
+      await db.update(
+        'campaigns',
+        values,
+        where: 'id = ?',
+        whereArgs: [campaignId],
+      );
+      return;
+    }
+
+    await db.insert('campaigns', values);
   }
 
   Future<void> _upsert(dynamic db, String table, Map<String, dynamic> data) async {
@@ -589,6 +831,10 @@ class LocalSyncStore {
         'campaign' => 'campaigns',
         'campaign_member' => 'campaign_members',
         'session' => 'campaign_sessions',
+        'battle' => 'battles',
+        'battle_turn' => 'battle_turns',
+        'battle_action_request' => 'battle_action_requests',
+        'battle_log_entry' => 'battle_log_entries',
         'character' => 'characters',
         'item' => 'items',
         'spell' => 'spells',

@@ -193,7 +193,7 @@ class ConnectionManager extends ChangeNotifier {
       notifyListeners();
       port = await _findAvailableServerPort(port);
       _role = 'gm';
-      _displayName = gmName.trim().isEmpty ? 'GM' : gmName.trim();
+      _displayName = gmName.trim().isEmpty ? 'ГМ' : gmName.trim();
       _campaignId = campaignId;
       _connectedPort = port;
       _connectedToken = SyncIds.newId().replaceAll('-', '');
@@ -219,7 +219,7 @@ class ConnectionManager extends ChangeNotifier {
       final python = await _findSystemPythonExecutable();
       if (python == null) {
         throw StateError(
-          'Не найден обычный Python 3. Установите Python 3 и повторите запуск Host Game.',
+          'Не найден обычный Python 3. Установите Python 3 и повторите запуск сервера.',
         );
       }
 
@@ -296,7 +296,7 @@ class ConnectionManager extends ChangeNotifier {
             ? 'Нет вывода от server/run.py.'
             : details.take(12).join('\n');
         throw StateError(
-          'GM Server не запустился на 127.0.0.1:$port.'
+          'Сервер ГМ не запустился на 127.0.0.1:$port.'
           '${serverExitCode == null ? '' : ' Код завершения: $serverExitCode.'}\n$tail',
         );
       }
@@ -351,7 +351,7 @@ class ConnectionManager extends ChangeNotifier {
   }) async {
     await disconnect();
     _role = role;
-    _displayName = displayName.trim().isEmpty ? 'Player' : displayName.trim();
+    _displayName = displayName.trim().isEmpty ? 'Игрок' : displayName.trim();
     _campaignId = campaignId;
     _connectedHost = host;
     _transportHost = host;
@@ -435,7 +435,7 @@ class ConnectionManager extends ChangeNotifier {
   }
 
   String get connectionLabel {
-    if (_role == 'gm' && hosting) return 'GM Server: $_connectedPort';
+    if (_role == 'gm' && hosting) return 'Сервер ГМ: $_connectedPort';
     if (connected) return 'Подключено: $_connectedHost:$_connectedPort';
     return switch (_state) {
       TransportState.connecting => 'Подключение…',
@@ -481,7 +481,7 @@ class ConnectionManager extends ChangeNotifier {
         await probe?.close();
       }
     }
-    throw StateError('Не удалось найти свободный порт для GM Server начиная с $preferred.');
+    throw StateError('Не удалось найти свободный порт для сервера ГМ начиная с $preferred.');
   }
 
   Future<void> stopHosting({bool resetStarting = true}) async {

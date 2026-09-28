@@ -17,6 +17,10 @@ SUPPORTED_ENTITIES = {
     "campaign",
     "campaign_member",
     "session",
+    "battle",
+    "battle_turn",
+    "battle_action_request",
+    "battle_log_entry",
     "character",
     "item",
     "spell",
@@ -210,10 +214,27 @@ class HubServer:
         )
 
     async def send_snapshot(self, client: Client, *, record: bool = True) -> None:
-        entities = [
-            {"entity": entity, "data": dict(data)}
-            for (entity, _sync_id), data in self.state.items()
-        ]
+        recent_log_keys: dict[str, list[tuple[str, str]]] = {}
+        for key, data in self.state.items():
+            if key[0] != "battle_log_entry":
+                continue
+            battle_sync_id = str(data.get("battle_sync_id", "")).strip()
+            if battle_sync_id:
+                recent_log_keys.setdefault(battle_sync_id, []).append(key)
+
+        # Journal is authoritative and append-only on the server, but reconnect
+        # snapshots only need the recent workspace context. Keep at most 100
+        # log entries per active/completed battle in state insertion order.
+        allowed_recent_logs: set[tuple[str, str]] = set()
+        for keys in recent_log_keys.values():
+            allowed_recent_logs.update(keys[-100:])
+
+        entities = []
+        for key, data in self.state.items():
+            if key[0] == "battle_log_entry" and key not in allowed_recent_logs:
+                continue
+            entities.append({"entity": key[0], "data": dict(data)})
+
         event = self._event("state.snapshot", {"entities": entities})
         if record:
             self.history.append(event)
@@ -224,8 +245,12 @@ class HubServer:
     ) -> bool:
         if entity == "campaign":
             return str(data.get("sync_id", "")) == self.campaign_id
-        if entity in {"campaign_member", "session"}:
+        if entity in {"campaign_member", "session", "battle"}:
             return str(data.get("campaign_sync_id", "")) == self.campaign_id
+        if entity in {"battle_turn", "battle_action_request", "battle_log_entry"}:
+            battle_sync_id = str(data.get("battle_sync_id", "")).strip()
+            battle = self.state.get(("battle", battle_sync_id))
+            return battle is not None and battle.get("campaign_sync_id") == self.campaign_id
         character_sync_id = str(data.get("character_sync_id", ""))
         if entity == "character":
             character_sync_id = str(data.get("sync_id", ""))
@@ -250,7 +275,14 @@ class HubServer:
             }
             for key, data in list(self.state.items()):
                 kind, _ = key
-                if kind in {"campaign_member", "session"} and data.get("campaign_sync_id") == sync_id:
+                if kind in {"campaign_member", "session", "battle"} and data.get("campaign_sync_id") == sync_id:
+                    self.state.pop(key, None)
+                elif kind in {"battle_turn", "battle_action_request", "battle_log_entry"} and any(
+                    battle_data.get("sync_id") == data.get("battle_sync_id")
+                    and battle_data.get("campaign_sync_id") == sync_id
+                    for (battle_kind, _), battle_data in self.state.items()
+                    if battle_kind == "battle"
+                ):
                     self.state.pop(key, None)
                 elif kind == "character" and str(data.get("sync_id")) in linked_characters:
                     self.state.pop(key, None)
@@ -312,6 +344,12 @@ class HubServer:
                 } and data.get("character_sync_id") == linked_character:
                     removed.append(key)
                     self.state.pop(key, None)
+                elif entity == "battle_turn" and data.get("character_sync_id") == linked_character:
+                    removed.append(key)
+                    self.state.pop(key, None)
+                elif entity == "battle_action_request" and data.get("actor_character_sync_id") == linked_character:
+                    removed.append(key)
+                    self.state.pop(key, None)
         return removed
 
     def _player_can_mutate(self, client: Client, entity: str, data: dict[str, Any]) -> bool:
@@ -329,18 +367,933 @@ class HubServer:
             character_sync_id = str(data.get("sync_id") or "")
         return character_sync_id in allowed
 
+    def _active_battle(self) -> tuple[tuple[str, str], dict[str, Any]] | None:
+        for key, data in self.state.items():
+            if key[0] != "battle":
+                continue
+            if data.get("campaign_sync_id") != self.campaign_id:
+                continue
+            if data.get("status") == "active":
+                return key, data
+        return None
+
+    def _session_by_sync_id(self, session_sync_id: str) -> tuple[tuple[str, str], dict[str, Any]] | None:
+        value = session_sync_id.strip()
+        if not value:
+            return None
+        for key, data in self.state.items():
+            if key[0] != "session":
+                continue
+            if key[1] == value and data.get("campaign_sync_id") == self.campaign_id:
+                return key, data
+        return None
+
+    def _character_for_campaign(self, character_sync_id: str) -> tuple[tuple[str, str], dict[str, Any]] | None:
+        value = character_sync_id.strip()
+        if not value:
+            return None
+        item = self.state.get(("character", value))
+        if item is None:
+            return None
+        if not self._state_entry_belongs_to_campaign("character", item):
+            return None
+        return ("character", value), item
+
+    def _battle_projection(self, battle: dict[str, Any]) -> list[dict[str, Any]]:
+        projections: list[dict[str, Any]] = []
+        linked_clients: dict[str, str] = {}
+        for (entity, _sync_id), member in self.state.items():
+            if entity != "campaign_member" or member.get("campaign_sync_id") != self.campaign_id:
+                continue
+            linked = str(member.get("linked_character_sync_id") or "").strip()
+            if linked:
+                linked_clients[linked] = str(member.get("client_id") or "")
+
+        for character_sync_id, player_client_id in linked_clients.items():
+            character = self.state.get(("character", character_sync_id))
+            if character is None:
+                continue
+            projections.append({
+                "character_sync_id": character_sync_id,
+                "name": str(character.get("name") or "Character"),
+                "hp": max(0, int(character.get("hp", 0) or 0)),
+                "max_hp": max(0, int(character.get("max_hp", 0) or 0)),
+                "temporary_hp": max(0, int(character.get("temporary_hp", 0) or 0)),
+                "armor_class": max(0, int(character.get("armor_class", 0) or 0)),
+                "initiative": int(character.get("initiative", 0) or 0),
+                "player_client_id": player_client_id,
+            })
+        return projections
+
+    async def send_battle_event(
+        self,
+        event_name: str,
+        battle: dict[str, Any],
+        *,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "battle": dict(battle),
+            "projections": self._battle_projection(battle),
+        }
+        if extra:
+            payload.update(extra)
+        return await self.broadcast_event(event_name, payload)
+
+    async def send_battle_snapshot(self, client: Client, battle: dict[str, Any]) -> None:
+        event = self._event(
+            "battle.snapshot",
+            {
+                "battle": dict(battle),
+                "projections": self._battle_projection(battle),
+            },
+        )
+        await client.websocket.send_json(event)
+
+    def _battle_character_allowed(self, client: Client, character_sync_id: str) -> bool:
+        character = self._character_for_campaign(character_sync_id)
+        if character is None:
+            return False
+        if client.role == "gm":
+            return True
+        return character_sync_id in self._player_character_sync_ids(client)
+
+    def _battle_by_sync_id(self, battle_sync_id: str) -> tuple[tuple[str, str], dict[str, Any]] | None:
+        value = battle_sync_id.strip()
+        if not value:
+            return None
+        battle = self.state.get(("battle", value))
+        if battle is None or battle.get("campaign_sync_id") != self.campaign_id:
+            return None
+        return ("battle", value), battle
+
+    def _active_turn(self, battle_sync_id: str) -> tuple[tuple[str, str], dict[str, Any]] | None:
+        for key, data in self.state.items():
+            if key[0] == "battle_turn" and data.get("battle_sync_id") == battle_sync_id and data.get("status") == "active":
+                return key, data
+        return None
+
+    def _next_turn_sequence(self, battle_sync_id: str) -> int:
+        values = [
+            int(data.get("sequence", 0) or 0)
+            for (entity, _), data in self.state.items()
+            if entity == "battle_turn" and data.get("battle_sync_id") == battle_sync_id
+        ]
+        return max(values, default=0) + 1
+
+    def _is_linked_player_character(self, character_sync_id: str) -> bool:
+        value = character_sync_id.strip()
+        if not value:
+            return False
+        character = self._character_for_campaign(value)
+        if character is None:
+            return False
+        return any(
+            entity == "campaign_member"
+            and member.get("campaign_sync_id") == self.campaign_id
+            and member.get("role") == "player"
+            and str(member.get("linked_character_sync_id") or "").strip() == value
+            for (entity, _), member in self.state.items()
+        )
+
+    async def _publish_workspace_entity(
+        self,
+        event_name: str,
+        entity: str,
+        data: dict[str, Any],
+        *,
+        command_id: str = "",
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        sync_id = str(data.get("sync_id", "")).strip()
+        if not sync_id:
+            raise ValueError(f"{entity} requires sync_id")
+        stored = dict(data)
+        self.state[(entity, sync_id)] = stored
+        payload: dict[str, Any] = {
+            "command_id": command_id,
+            "entity": entity,
+            "data": stored,
+        }
+        if extra:
+            payload.update(extra)
+        return await self.broadcast_event(event_name, payload)
+
+    async def _append_battle_log(
+        self,
+        battle_sync_id: str,
+        entry_type: str,
+        *,
+        actor_character_sync_id: str = "",
+        target_character_sync_id: str = "",
+        target_label: str = "",
+        action_sync_id: str = "",
+        action_request_sync_id: str = "",
+        amount: int | None = None,
+        turn_sequence: int | None = None,
+        metadata: dict[str, Any] | None = None,
+        broadcast: bool = True,
+    ) -> dict[str, Any]:
+        now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+        entry = {
+            "sync_id": secrets.token_hex(16),
+            "battle_sync_id": battle_sync_id,
+            "type": entry_type,
+            "actor_character_sync_id": actor_character_sync_id,
+            "target_character_sync_id": target_character_sync_id,
+            "target_label": target_label,
+            "action_sync_id": action_sync_id,
+            "action_request_sync_id": action_request_sync_id,
+            "amount": amount,
+            "turn_sequence": turn_sequence,
+            "metadata": dict(metadata or {}),
+            "created_at": now,
+        }
+        if not broadcast:
+            self.state[("battle_log_entry", entry["sync_id"])] = entry
+            return {
+                "protocol": PROTOCOL,
+                "type": "event",
+                "id": secrets.token_hex(16),
+                "client_id": "server",
+                "campaign_id": self.campaign_id,
+                "sequence": self.sequence,
+                "payload": {"event": "battle.journal.entry", "entity": "battle_log_entry", "data": entry},
+            }
+        return await self._publish_workspace_entity(
+            "battle.journal.entry",
+            "battle_log_entry",
+            entry,
+            extra={"battle_sync_id": battle_sync_id},
+        )
+
+    async def _send_battle_state(self, battle: dict[str, Any]) -> dict[str, Any]:
+        return await self.send_battle_event("battle.state", battle)
+
+    async def _handle_battle_turn_start(self, client: Client, command_id: str, payload: dict[str, Any]) -> None:
+        if client.role != "gm":
+            await self.send_error(client, "Только ГМ может начать ход", command_id)
+            return
+        async with self._lock:
+            battle_sync_id = str(payload.get("battle_sync_id", "")).strip()
+            active = self._battle_by_sync_id(battle_sync_id)
+            if active is None or active[1].get("status") != "active":
+                await self.send_error(client, "Активный бой не найден", command_id)
+                return
+            character_sync_id = str(payload.get("character_sync_id", "")).strip()
+            if not self._is_linked_player_character(character_sync_id):
+                await self.send_error(client, "Персонаж хода должен быть привязан к игроку", command_id)
+                return
+
+            current = self._active_turn(battle_sync_id)
+            if current is not None:
+                current_data = dict(current[1])
+                current_data["status"] = "completed"
+                current_data["ended_at"] = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+                self.state[current[0]] = current_data
+                await self._publish_workspace_entity(
+                    "battle.turn.ended",
+                    "battle_turn",
+                    current_data,
+                    command_id=command_id,
+                    extra={"battle_sync_id": battle_sync_id, "current_turn": None},
+                )
+                await self._append_battle_log(
+                    battle_sync_id,
+                    "turn_ended",
+                    actor_character_sync_id=current_data.get("character_sync_id", ""),
+                    turn_sequence=int(current_data.get("sequence", 0) or 0),
+                )
+
+            now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+            turn = {
+                "sync_id": secrets.token_hex(16),
+                "battle_sync_id": battle_sync_id,
+                "character_sync_id": character_sync_id,
+                "sequence": self._next_turn_sequence(battle_sync_id),
+                "status": "active",
+                "started_at": now,
+                "ended_at": None,
+            }
+            event = await self._publish_workspace_entity(
+                "battle.turn.started",
+                "battle_turn",
+                turn,
+                command_id=command_id,
+                extra={"battle_sync_id": battle_sync_id, "current_turn": turn},
+            )
+            await self._append_battle_log(
+                battle_sync_id,
+                "turn_started",
+                actor_character_sync_id=character_sync_id,
+                turn_sequence=turn["sequence"],
+            )
+            await client.websocket.send_json({
+                "protocol": PROTOCOL,
+                "type": "event",
+                "id": secrets.token_hex(16),
+                "client_id": "server",
+                "campaign_id": self.campaign_id,
+                "sequence": event["sequence"],
+                "payload": {"event": "ack", "command_id": command_id, "turn_sync_id": turn["sync_id"]},
+            })
+
+    async def _handle_battle_turn_end(self, client: Client, command_id: str, payload: dict[str, Any]) -> None:
+        if client.role != "gm":
+            await self.send_error(client, "Только ГМ может завершить ход", command_id)
+            return
+        async with self._lock:
+            battle_sync_id = str(payload.get("battle_sync_id", "")).strip()
+            active = self._battle_by_sync_id(battle_sync_id)
+            if active is None or active[1].get("status") != "active":
+                await self.send_error(client, "Активный бой не найден", command_id)
+                return
+            current = self._active_turn(battle_sync_id)
+            requested = str(payload.get("turn_sync_id", "")).strip()
+            if current is None or (requested and requested != current[0][1]):
+                await self.send_error(client, "Активный ход не найден", command_id)
+                return
+            turn = dict(current[1])
+            turn["status"] = "completed"
+            turn["ended_at"] = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+            event = await self._publish_workspace_entity(
+                "battle.turn.ended",
+                "battle_turn",
+                turn,
+                command_id=command_id,
+                extra={"battle_sync_id": battle_sync_id, "current_turn": None},
+            )
+            await self._append_battle_log(
+                battle_sync_id,
+                "turn_ended",
+                actor_character_sync_id=turn.get("character_sync_id", ""),
+                turn_sequence=int(turn.get("sequence", 0) or 0),
+            )
+            await client.websocket.send_json({
+                "protocol": PROTOCOL,
+                "type": "event",
+                "id": secrets.token_hex(16),
+                "client_id": "server",
+                "campaign_id": self.campaign_id,
+                "sequence": event["sequence"],
+                "payload": {"event": "ack", "command_id": command_id, "turn_sync_id": turn["sync_id"]},
+            })
+
+    def _request_original_metadata(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "target_type": str(payload.get("target_type", "self")),
+            "target_character_sync_id": str(payload.get("target_character_sync_id", "")),
+            "target_label": str(payload.get("target_label", "")),
+            "attack_total": payload.get("attack_total"),
+            "effect_formula": str(payload.get("effect_formula", "")),
+            "effect_type": str(payload.get("effect_type", "none")),
+            "effect_total": payload.get("effect_total"),
+        }
+
+    def _action_request_belongs_to_battle(self, request_sync_id: str) -> tuple[tuple[str, str], dict[str, Any]] | None:
+        value = request_sync_id.strip()
+        if not value:
+            return None
+        request = self.state.get(("battle_action_request", value))
+        if request is None:
+            return None
+        battle = self._battle_by_sync_id(str(request.get("battle_sync_id", "")).strip())
+        if battle is None:
+            return None
+        return ("battle_action_request", value), request
+
+    def _validate_target(
+        self,
+        target_type: str,
+        target_character_sync_id: str,
+        target_label: str,
+        actor_character_sync_id: str,
+    ) -> tuple[str, str]:
+        normalized_target = target_type.strip() or "self"
+        if normalized_target not in {"self", "ally", "external"}:
+            raise ValueError("Unsupported target type")
+        target_character_sync_id = target_character_sync_id.strip()
+        target_label = target_label.strip()[:120]
+        if normalized_target == "self":
+            return actor_character_sync_id, ""
+        if normalized_target == "ally":
+            if not self._is_linked_player_character(target_character_sync_id):
+                raise ValueError("Ally target is not a linked Player character")
+            return target_character_sync_id, ""
+        if not target_label:
+            raise ValueError("External target requires a name")
+        return "", target_label
+
+    async def _handle_battle_action_submit(self, client: Client, command_id: str, payload: dict[str, Any]) -> None:
+        if client.role != "player":
+            await self.send_error(client, "Только игрок может отправить действие", command_id)
+            return
+        async with self._lock:
+            battle_sync_id = str(payload.get("battle_sync_id", "")).strip()
+            active = self._battle_by_sync_id(battle_sync_id)
+            if active is None or active[1].get("status") != "active":
+                await self.send_error(client, "Активный бой не найден", command_id)
+                return
+            current = self._active_turn(battle_sync_id)
+            if current is None:
+                await self.send_error(client, "Сейчас не ход игрока", command_id)
+                return
+            actor_character_sync_id = str(payload.get("actor_character_sync_id", "")).strip()
+            allowed = self._player_character_sync_ids(client)
+            if actor_character_sync_id not in allowed or actor_character_sync_id != str(current[1].get("character_sync_id") or ""):
+                await self.send_error(client, "Отправлять действия можно только во время своего хода", command_id)
+                return
+
+            action_name = str(payload.get("action_name", "")).strip()[:160]
+            if not action_name:
+                await self.send_error(client, "Необходимо указать название действия", command_id)
+                return
+            action_type = str(payload.get("action_type", "manual")).strip() or "manual"
+            if action_type not in {"attack", "spell", "ability", "item", "manual"}:
+                await self.send_error(client, "Неподдерживаемый тип действия", command_id)
+                return
+            try:
+                target_character_sync_id, target_label = self._validate_target(
+                    str(payload.get("target_type", "self")),
+                    str(payload.get("target_character_sync_id", "")),
+                    str(payload.get("target_label", "")),
+                    actor_character_sync_id,
+                )
+            except ValueError as exc:
+                await self.send_error(client, str(exc), command_id)
+                return
+
+            effect_type = str(payload.get("effect_type", "none")).strip() or "none"
+            if effect_type not in {"none", "damage", "healing", "temporary_hp"}:
+                await self.send_error(client, "Неподдерживаемый тип эффекта", command_id)
+                return
+            def optional_int(key: str) -> int | None:
+                raw = payload.get(key)
+                if raw is None or raw == "":
+                    return None
+                try:
+                    return int(raw)
+                except (TypeError, ValueError):
+                    raise ValueError(f"{key} must be an integer")
+
+            try:
+                attack_total = optional_int("attack_total")
+                effect_total = optional_int("effect_total")
+            except ValueError as exc:
+                await self.send_error(client, str(exc), command_id)
+                return
+            if attack_total is not None and attack_total < 0:
+                await self.send_error(client, "Результат попадания не может быть отрицательным", command_id)
+                return
+            if effect_total is not None and effect_total < 0:
+                await self.send_error(client, "Результат эффекта не может быть отрицательным", command_id)
+                return
+
+            now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+            metadata = payload.get("metadata")
+            metadata = dict(metadata) if isinstance(metadata, dict) else {}
+            metadata.setdefault("original", self._request_original_metadata(payload))
+            request = {
+                "sync_id": secrets.token_hex(16),
+                "battle_sync_id": battle_sync_id,
+                "turn_sync_id": current[0][1],
+                "turn_sequence": int(current[1].get("sequence", 0) or 0),
+                "actor_character_sync_id": actor_character_sync_id,
+                "action_type": action_type,
+                "action_sync_id": str(payload.get("action_sync_id", "")).strip(),
+                "action_name": action_name,
+                "target_type": str(payload.get("target_type", "self")).strip() or "self",
+                "target_character_sync_id": target_character_sync_id,
+                "target_label": target_label,
+                "attack_formula": str(payload.get("attack_formula", "")).strip()[:120],
+                "attack_total": attack_total,
+                "effect_formula": str(payload.get("effect_formula", "")).strip()[:120],
+                "effect_type": effect_type,
+                "effect_total": effect_total,
+                "status": "pending_gm",
+                "resolution_note": "",
+                "metadata": metadata,
+                "created_at": now,
+                "resolved_at": None,
+                "updated_at": now,
+            }
+            event = await self._publish_workspace_entity(
+                "battle.action.submitted",
+                "battle_action_request",
+                request,
+                command_id=command_id,
+                extra={"battle_sync_id": battle_sync_id},
+            )
+            await self._append_battle_log(
+                battle_sync_id,
+                "action_submitted",
+                actor_character_sync_id=actor_character_sync_id,
+                target_character_sync_id=target_character_sync_id,
+                target_label=target_label,
+                action_sync_id=request["action_sync_id"],
+                action_request_sync_id=request["sync_id"],
+                turn_sequence=request["turn_sequence"],
+                metadata={"action_name": action_name, "action_type": action_type},
+            )
+            if attack_total is not None:
+                await self._append_battle_log(
+                    battle_sync_id,
+                    "attack_roll",
+                    actor_character_sync_id=actor_character_sync_id,
+                    target_character_sync_id=target_character_sync_id,
+                    target_label=target_label,
+                    action_sync_id=request["action_sync_id"],
+                    action_request_sync_id=request["sync_id"],
+                    amount=attack_total,
+                    turn_sequence=request["turn_sequence"],
+                    metadata={"formula": request["attack_formula"], "bonus": (request.get("metadata") or {}).get("attack_bonus", "")},
+                )
+            if effect_total is not None and effect_type != "none":
+                roll_type = {"damage": "damage_roll", "healing": "healing_roll", "temporary_hp": "temporary_hp_applied"}[effect_type]
+                await self._append_battle_log(
+                    battle_sync_id,
+                    roll_type,
+                    actor_character_sync_id=actor_character_sync_id,
+                    target_character_sync_id=target_character_sync_id,
+                    target_label=target_label,
+                    action_sync_id=request["action_sync_id"],
+                    action_request_sync_id=request["sync_id"],
+                    amount=effect_total,
+                    turn_sequence=request["turn_sequence"],
+                    metadata={"formula": request["effect_formula"]},
+                )
+            await client.websocket.send_json({
+                "protocol": PROTOCOL,
+                "type": "event",
+                "id": secrets.token_hex(16),
+                "client_id": "server",
+                "campaign_id": self.campaign_id,
+                "sequence": event["sequence"],
+                "payload": {"event": "ack", "command_id": command_id, "action_request_sync_id": request["sync_id"]},
+            })
+
+    async def _resolve_action_request(
+        self,
+        client: Client,
+        command_id: str,
+        request: dict[str, Any],
+        *,
+        status: str,
+        note: str = "",
+        modifications: dict[str, Any] | None = None,
+    ) -> None:
+        battle_sync_id = str(request.get("battle_sync_id", "")).strip()
+        battle_ref = self._battle_by_sync_id(battle_sync_id)
+        if battle_ref is None or battle_ref[1].get("status") != "active":
+            await self.send_error(client, "Активный бой не найден", command_id)
+            return
+        current = dict(request)
+        if modifications:
+            for key, value in modifications.items():
+                if key in {"target_type", "target_character_sync_id", "target_label", "attack_formula", "attack_total", "effect_formula", "effect_type", "effect_total", "resolution_note"}:
+                    current[key] = value
+            if "attack_bonus" in modifications:
+                current_metadata = dict(current.get("metadata") or {})
+                current_metadata["attack_bonus"] = str(modifications.get("attack_bonus", "")).strip()[:32]
+                current["metadata"] = current_metadata
+            target_type = str(current.get("target_type", "self"))
+            actor_id = str(current.get("actor_character_sync_id", ""))
+            try:
+                target_character_sync_id, target_label = self._validate_target(
+                    target_type,
+                    str(current.get("target_character_sync_id", "")),
+                    str(current.get("target_label", "")),
+                    actor_id,
+                )
+            except ValueError as exc:
+                await self.send_error(client, str(exc), command_id)
+                return
+            current["target_character_sync_id"] = target_character_sync_id
+            current["target_label"] = target_label
+            metadata = dict(current.get("metadata") or {})
+            changes = dict(metadata.get("modifications") or {})
+            for key in modifications:
+                if key in {"target_type", "target_character_sync_id", "target_label", "attack_formula", "attack_total", "effect_formula", "effect_type", "effect_total"}:
+                    before = request.get(key)
+                    after = current.get(key)
+                    if before != after:
+                        changes[key] = {"before": before, "after": after}
+            if "attack_bonus" in modifications:
+                before = (request.get("metadata") or {}).get("attack_bonus", "")
+                after = (current.get("metadata") or {}).get("attack_bonus", "")
+                if before != after:
+                    changes["attack_bonus"] = {"before": before, "after": after}
+            metadata["modifications"] = changes
+            current["metadata"] = metadata
+
+        if status in {"approved", "modified"}:
+            target_type = str(current.get("target_type", "self"))
+            effect_type = str(current.get("effect_type", "none"))
+            raw_amount = current.get("effect_total")
+            amount = None if raw_amount is None else int(raw_amount)
+            if amount is not None and amount < 0:
+                await self.send_error(client, "Результат эффекта не может быть отрицательным", command_id)
+                return
+            if target_type in {"self", "ally"} and effect_type != "none" and amount is None:
+                await self.send_error(client, "Для действий по себе или союзнику перед подтверждением нужен результат эффекта", command_id)
+                return
+
+        now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+        current["status"] = status
+        current["resolution_note"] = note[:300]
+        current["resolved_at"] = now
+        current["updated_at"] = now
+        event_name = {
+            "approved": "battle.action.approved",
+            "modified": "battle.action.modified",
+            "rejected": "battle.action.rejected",
+        }[status]
+        event = await self._publish_workspace_entity(
+            event_name,
+            "battle_action_request",
+            current,
+            command_id=command_id,
+            extra={"battle_sync_id": battle_sync_id},
+        )
+        await self._append_battle_log(
+            battle_sync_id,
+            f"action_{status}",
+            actor_character_sync_id=str(current.get("actor_character_sync_id", "")),
+            target_character_sync_id=str(current.get("target_character_sync_id", "")),
+            target_label=str(current.get("target_label", "")),
+            action_sync_id=str(current.get("action_sync_id", "")),
+            action_request_sync_id=str(current.get("sync_id", "")),
+            turn_sequence=int(current.get("turn_sequence", 0) or 0),
+            metadata={"note": note, "modifications": current.get("metadata", {}).get("modifications", {})},
+        )
+
+        if status in {"approved", "modified"}:
+            target_type = str(current.get("target_type", "self"))
+            effect_type = str(current.get("effect_type", "none"))
+            amount = current.get("effect_total")
+            target_id = str(current.get("target_character_sync_id", ""))
+            if target_type in {"self", "ally"} and effect_type != "none" and amount is not None:
+                target = self._character_for_campaign(target_id)
+                if target is not None:
+                    updated = dict(target[1])
+                    hp_before = max(0, int(updated.get("hp", 0) or 0))
+                    temp_before = max(0, int(updated.get("temporary_hp", 0) or 0))
+                    max_hp = max(0, int(updated.get("max_hp", 0) or 0))
+                    amount_int = max(0, int(amount))
+                    if effect_type == "damage":
+                        absorbed = min(amount_int, temp_before)
+                        updated["temporary_hp"] = temp_before - absorbed
+                        updated["hp"] = max(0, hp_before - (amount_int - absorbed))
+                        log_type = "damage_applied"
+                        before_after = {"hp_before": hp_before, "hp_after": updated["hp"], "temporary_hp_before": temp_before, "temporary_hp_after": updated["temporary_hp"]}
+                    elif effect_type == "healing":
+                        updated["hp"] = min(max_hp, hp_before + amount_int)
+                        log_type = "healing_applied"
+                        before_after = {"hp_before": hp_before, "hp_after": updated["hp"]}
+                    else:
+                        updated["temporary_hp"] = amount_int
+                        log_type = "temporary_hp_applied"
+                        before_after = {"temporary_hp_before": temp_before, "temporary_hp_after": updated["temporary_hp"]}
+                    self.state[target[0]] = updated
+                    state_event = await self.broadcast_event(
+                        "state.upsert",
+                        {
+                            "command_id": command_id,
+                            "origin_client_id": client.client_id,
+                            "origin_display_name": client.display_name,
+                            "entity": "character",
+                            "data": dict(updated),
+                        },
+                        include_sender=True,
+                        sender_id=client.client_id,
+                    )
+                    await self._append_battle_log(
+                        battle_sync_id,
+                        log_type,
+                        actor_character_sync_id=str(current.get("actor_character_sync_id", "")),
+                        target_character_sync_id=target_id,
+                        target_label=str(current.get("target_label", "")),
+                        action_sync_id=str(current.get("action_sync_id", "")),
+                        action_request_sync_id=str(current.get("sync_id", "")),
+                        amount=amount_int,
+                        turn_sequence=int(current.get("turn_sequence", 0) or 0),
+                        metadata=before_after,
+                    )
+
+        await self._send_battle_state(active[1] if (active := self._battle_by_sync_id(battle_sync_id)) is not None else {"sync_id": battle_sync_id})
+        await client.websocket.send_json({
+            "protocol": PROTOCOL,
+            "type": "event",
+            "id": secrets.token_hex(16),
+            "client_id": "server",
+            "campaign_id": self.campaign_id,
+            "sequence": event["sequence"],
+            "payload": {"event": "ack", "command_id": command_id, "action_request_sync_id": current["sync_id"]},
+        })
+
+    async def _handle_battle_action_resolve(self, client: Client, command_id: str, payload: dict[str, Any], *, status: str) -> None:
+        if client.role != "gm":
+            await self.send_error(client, "Только ГМ может обработать запрос действия", command_id)
+            return
+        async with self._lock:
+            request_ref = self._action_request_belongs_to_battle(str(payload.get("action_request_sync_id", "")))
+            if request_ref is None:
+                await self.send_error(client, "Запрос действия не найден", command_id)
+                return
+            _key, request = request_ref
+            if request.get("status") != "pending_gm":
+                await self.send_error(client, "Запрос действия уже обработан", command_id)
+                return
+            if status == "rejected":
+                await self._resolve_action_request(
+                    client,
+                    command_id,
+                    request,
+                    status="rejected",
+                    note=str(payload.get("reason", "")),
+                )
+                return
+
+            modifications: dict[str, Any] = {}
+            raw_modifications = payload.get("modifications")
+            if isinstance(raw_modifications, dict):
+                for key in ("target_type", "target_character_sync_id", "target_label", "attack_formula", "attack_total", "effect_formula", "effect_type", "effect_total"):
+                    if key in raw_modifications:
+                        modifications[key] = raw_modifications[key]
+            # Accept flat fields as well so the protocol remains easy to use
+            # from simple clients and older prototypes.
+            for key in ("target_type", "target_character_sync_id", "target_label", "attack_formula", "attack_total", "effect_formula", "effect_type", "effect_total"):
+                if key in payload:
+                    modifications[key] = payload[key]
+            await self._resolve_action_request(
+                client,
+                command_id,
+                request,
+                status=status,
+                note=str(payload.get("resolution_note", payload.get("note", ""))),
+                modifications=modifications or None,
+            )
+
+    async def _handle_battle_start(self, client: Client, command_id: str, payload: dict[str, Any]) -> None:
+        if client.role != "gm":
+            await self.send_error(client, "Только ГМ может начать бой", command_id)
+            return
+
+        async with self._lock:
+            session_sync_id = str(payload.get("session_sync_id", "")).strip()
+            session = self._session_by_sync_id(session_sync_id)
+            if session is None or session[1].get("status") != "active":
+                await self.send_error(client, "Для начала боя нужна активная сессия", command_id)
+                return
+            if self._active_battle() is not None:
+                await self.send_error(client, "В этой сессии уже есть активный бой", command_id)
+                return
+
+            now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+            battle = {
+                "sync_id": secrets.token_hex(16),
+                "campaign_sync_id": self.campaign_id,
+                "session_sync_id": session_sync_id,
+                "status": "active",
+                "created_at": now,
+                "started_at": now,
+                "ended_at": None,
+                "updated_at": now,
+            }
+            self.state[("battle", battle["sync_id"])] = battle
+            event = await self.send_battle_event("battle.started", battle)
+            await client.websocket.send_json({
+                "protocol": PROTOCOL,
+                "type": "event",
+                "id": secrets.token_hex(16),
+                "client_id": "server",
+                "campaign_id": self.campaign_id,
+                "sequence": event["sequence"],
+                "payload": {
+                    "event": "ack",
+                    "command_id": command_id,
+                    "battle_sync_id": battle["sync_id"],
+                },
+            })
+
+    async def _handle_battle_end(self, client: Client, command_id: str, payload: dict[str, Any]) -> None:
+        if client.role != "gm":
+            await self.send_error(client, "Только ГМ может завершить бой", command_id)
+            return
+
+        async with self._lock:
+            battle_sync_id = str(payload.get("battle_sync_id", "")).strip()
+            current = self.state.get(("battle", battle_sync_id))
+            if current is None or current.get("status") != "active":
+                await self.send_error(client, "Активный бой не найден", command_id)
+                return
+
+            now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+            battle = dict(current)
+            active_turn = self._active_turn(battle_sync_id)
+            if active_turn is not None:
+                ended_turn = dict(active_turn[1])
+                ended_turn["status"] = "completed"
+                ended_turn["ended_at"] = now
+                await self._publish_workspace_entity(
+                    "battle.turn.ended",
+                    "battle_turn",
+                    ended_turn,
+                    extra={"battle_sync_id": battle_sync_id, "current_turn": None},
+                )
+                await self._append_battle_log(
+                    battle_sync_id,
+                    "turn_ended",
+                    actor_character_sync_id=str(ended_turn.get("character_sync_id") or ""),
+                    turn_sequence=int(ended_turn.get("sequence", 0) or 0),
+                )
+
+            battle["status"] = "completed"
+            battle["ended_at"] = now
+            battle["updated_at"] = now
+            self.state[("battle", battle_sync_id)] = battle
+
+            event = await self.send_battle_event("battle.ended", battle)
+            await client.websocket.send_json({
+                "protocol": PROTOCOL,
+                "type": "event",
+                "id": secrets.token_hex(16),
+                "client_id": "server",
+                "campaign_id": self.campaign_id,
+                "sequence": event["sequence"],
+                "payload": {
+                    "event": "ack",
+                    "command_id": command_id,
+                    "battle_sync_id": battle_sync_id,
+                },
+            })
+
+    async def _handle_battle_character_action(
+        self,
+        client: Client,
+        command_id: str,
+        payload: dict[str, Any],
+        operation: str,
+    ) -> None:
+        async with self._lock:
+            active = self._active_battle()
+            if active is None:
+                await self.send_error(client, "Нет активного боя", command_id)
+                return
+
+            battle_key, battle = active
+            requested_battle_id = str(payload.get("battle_sync_id", "")).strip()
+            if requested_battle_id != battle_key[1]:
+                await self.send_error(client, "Бой не совпадает с текущим подключением", command_id)
+                return
+
+            character_sync_id = str(payload.get("character_sync_id", "")).strip()
+            character = self._character_for_campaign(character_sync_id)
+            if character is None:
+                await self.send_error(client, "Персонаж не относится к размещённой кампании", command_id)
+                return
+            if not self._battle_character_allowed(client, character_sync_id):
+                await self.send_error(client, "Игрок может изменять только своего персонажа", command_id)
+                return
+
+            try:
+                amount = int(payload.get("amount"))
+            except (TypeError, ValueError):
+                await self.send_error(client, "Значение боя должно быть целым числом", command_id)
+                return
+            if amount < 0:
+                await self.send_error(client, "Значение боя не может быть отрицательным", command_id)
+                return
+
+            updated = dict(character[1])
+            hp = max(0, int(updated.get("hp", 0) or 0))
+            max_hp = max(0, int(updated.get("max_hp", 0) or 0))
+            temporary_hp = max(0, int(updated.get("temporary_hp", 0) or 0))
+
+            if operation == "damage":
+                absorbed = min(amount, temporary_hp)
+                temporary_hp -= absorbed
+                hp = max(0, hp - (amount - absorbed))
+            elif operation == "heal":
+                hp = min(max_hp, hp + amount)
+            elif operation == "temp_hp":
+                temporary_hp = amount
+            else:
+                await self.send_error(client, "Неподдерживаемая операция боя", command_id)
+                return
+
+            updated["hp"] = hp
+            updated["temporary_hp"] = temporary_hp
+            updated["sync_id"] = character_sync_id
+            self.state[character[0]] = updated
+
+            state_event = await self.broadcast_event(
+                "state.upsert",
+                {
+                    "command_id": command_id,
+                    "origin_client_id": client.client_id,
+                    "origin_display_name": client.display_name,
+                    "entity": "character",
+                    "data": dict(updated),
+                },
+                include_sender=True,
+                sender_id=client.client_id,
+            )
+            log_type = {
+                "damage": "damage_applied",
+                "heal": "healing_applied",
+                "temp_hp": "temporary_hp_applied",
+            }[operation]
+            journal_entry = await self._append_battle_log(
+                battle_key[1],
+                log_type,
+                actor_character_sync_id="",
+                target_character_sync_id=character_sync_id,
+                amount=amount,
+                metadata={
+                    "source": "gm_direct",
+                    "hp_before": max(0, int(character[1].get("hp", 0) or 0)),
+                    "hp_after": hp,
+                    "temporary_hp_before": max(0, int(character[1].get("temporary_hp", 0) or 0)),
+                    "temporary_hp_after": temporary_hp,
+                },
+                broadcast=False,
+            )
+            battle_event = await self.send_battle_event(
+                "battle.state",
+                battle,
+                extra={
+                    "journal_entry": journal_entry["payload"]["data"],
+                },
+            )
+
+            await client.websocket.send_json({
+                "protocol": PROTOCOL,
+                "type": "event",
+                "id": secrets.token_hex(16),
+                "client_id": "server",
+                "campaign_id": self.campaign_id,
+                "sequence": battle_event["sequence"],
+                "payload": {
+                    "event": "ack",
+                    "command_id": command_id,
+                    "battle_sync_id": battle_key[1],
+                    "character_sequence": state_event["sequence"],
+                },
+            })
+
     async def handle_command(self, client: Client, message: dict[str, Any]) -> None:
         if message.get("protocol") != PROTOCOL or message.get("type") != "command":
-            await self.send_error(client, "Unsupported protocol message")
+            await self.send_error(client, "Неподдерживаемое сообщение протокола")
             return
         command_id = str(message.get("id", ""))[:128]
         payload = message.get("payload")
         if not command_id or not isinstance(payload, dict):
-            await self.send_error(client, "Invalid command envelope", command_id)
+            await self.send_error(client, "Недопустимый формат команды", command_id)
             return
         command = str(payload.get("command", ""))[:80]
         if message.get("campaign_id") != self.campaign_id:
-            await self.send_error(client, "Campaign mismatch", command_id)
+            await self.send_error(client, "Кампания не совпадает с текущим подключением", command_id)
             return
         if command_id in self._seen_commands[client.client_id]:
             await client.websocket.send_json(
@@ -375,19 +1328,19 @@ class HubServer:
             try:
                 last_sequence = max(0, int(payload.get("last_sequence", 0) or 0))
             except (TypeError, ValueError):
-                await self.send_error(client, "Invalid resume sequence", command_id)
+                await self.send_error(client, "Недопустимая последовательность восстановления соединения", command_id)
                 return
             await self._resume(client, last_sequence)
             return
 
         if command == "member.leave":
             if client.role != "player":
-                await self.send_error(client, "Only a player can leave the campaign", command_id)
+                await self.send_error(client, "Только игрок может покинуть кампанию", command_id)
                 return
             member = self._player_member(client)
             member_sync_id = str(payload.get("member_sync_id", "")).strip()
             if member is None or member[0][1] != member_sync_id:
-                await self.send_error(client, "Player membership was not found", command_id)
+                await self.send_error(client, "Участник-игрок не найден", command_id)
                 return
 
             removed = self._remove_member_state(member_sync_id)
@@ -434,13 +1387,59 @@ class HubServer:
             )
             return
 
+        if command == "battle.start":
+            await self._handle_battle_start(client, command_id, payload)
+            return
+
+        if command == "battle.end":
+            await self._handle_battle_end(client, command_id, payload)
+            return
+
+        if command == "battle.turn.start":
+            await self._handle_battle_turn_start(client, command_id, payload)
+            return
+
+        if command == "battle.turn.end":
+            await self._handle_battle_turn_end(client, command_id, payload)
+            return
+
+        if command == "battle.action.submit":
+            await self._handle_battle_action_submit(client, command_id, payload)
+            return
+
+        if command == "battle.action.approve":
+            await self._handle_battle_action_resolve(client, command_id, payload, status="approved")
+            return
+
+        if command == "battle.action.modify":
+            await self._handle_battle_action_resolve(client, command_id, payload, status="modified")
+            return
+
+        if command == "battle.action.reject":
+            await self._handle_battle_action_resolve(client, command_id, payload, status="rejected")
+            return
+
+        if command in {"battle.damage", "battle.heal", "battle.temp_hp"}:
+            operation = {
+                "battle.damage": "damage",
+                "battle.heal": "heal",
+                "battle.temp_hp": "temp_hp",
+            }[command]
+            await self._handle_battle_character_action(
+                client,
+                command_id,
+                payload,
+                operation,
+            )
+            return
+
         if command == "snapshot.publish":
             if client.role != "gm":
-                await self.send_error(client, "Only GM can publish an authoritative snapshot", command_id)
+                await self.send_error(client, "Только ГМ может опубликовать эталонный снимок состояния", command_id)
                 return
             raw_entities = payload.get("entities")
             if not isinstance(raw_entities, list) or len(raw_entities) > MAX_SNAPSHOT_ENTITIES:
-                await self.send_error(client, "Invalid snapshot", command_id)
+                await self.send_error(client, "Недопустимый снимок состояния", command_id)
                 return
             new_state: dict[tuple[str, str], dict[str, Any]] = {}
             try:
@@ -476,6 +1475,60 @@ class HubServer:
                         raise ValueError("snapshot contains an unlinked character")
                     if entity_name in {"item", "spell", "ability", "attack", "note", "spell_slot", "xp_transaction"} and candidate.get("character_sync_id") not in linked_characters:
                         raise ValueError("snapshot contains an entity outside the hosted campaign")
+                    if entity_name == "battle":
+                        if candidate.get("campaign_sync_id") != self.campaign_id:
+                            raise ValueError("snapshot contains a battle outside the hosted campaign")
+                        session_sync_id = str(candidate.get("session_sync_id") or "")
+                        session = new_state.get(("session", session_sync_id))
+                        if session is None or session.get("campaign_sync_id") != self.campaign_id:
+                            raise ValueError("snapshot battle references an unknown session")
+                        if candidate.get("status") not in {"active", "completed"}:
+                            raise ValueError("snapshot contains an invalid battle status")
+                    if entity_name in {"battle_turn", "battle_action_request", "battle_log_entry"}:
+                        battle_sync_id = str(candidate.get("battle_sync_id") or "")
+                        battle = new_state.get(("battle", battle_sync_id))
+                        if battle is None or battle.get("campaign_sync_id") != self.campaign_id:
+                            raise ValueError("snapshot workspace entity references an unknown battle")
+                    if entity_name == "battle_turn":
+                        if candidate.get("status") not in {"active", "completed"}:
+                            raise ValueError("snapshot contains an invalid turn status")
+                        if str(candidate.get("character_sync_id") or "") not in linked_characters:
+                            raise ValueError("snapshot turn references an unlinked character")
+                    if entity_name == "battle_action_request":
+                        if candidate.get("status") not in {"declared", "pending_gm", "approved", "modified", "rejected"}:
+                            raise ValueError("snapshot contains an invalid action request status")
+                        if str(candidate.get("actor_character_sync_id") or "") not in linked_characters:
+                            raise ValueError("snapshot action references an unlinked actor")
+                        target_type = str(candidate.get("target_type") or "self")
+                        if target_type not in {"self", "ally", "external"}:
+                            raise ValueError("snapshot contains an invalid action target")
+                        if target_type == "ally" and str(candidate.get("target_character_sync_id") or "") not in linked_characters:
+                            raise ValueError("snapshot action references an unlinked target")
+                        if target_type == "external" and not str(candidate.get("target_label") or "").strip():
+                            raise ValueError("snapshot external action has no target label")
+                    if entity_name == "battle_log_entry":
+                        for field in ("actor_character_sync_id", "target_character_sync_id"):
+                            value = str(candidate.get(field) or "").strip()
+                            if value and value not in linked_characters:
+                                raise ValueError("snapshot journal references an unlinked character")
+                active_battles = [
+                    candidate
+                    for (entity_name, _), candidate in new_state.items()
+                    if entity_name == "battle" and candidate.get("status") == "active"
+                ]
+                active_sessions = [str(candidate.get("session_sync_id") or "") for candidate in active_battles]
+                if len(active_sessions) != len(set(active_sessions)):
+                    raise ValueError("snapshot contains multiple active battles for one session")
+                active_turns = [
+                    candidate
+                    for (entity_name, _), candidate in new_state.items()
+                    if entity_name == "battle_turn" and candidate.get("status") == "active"
+                ]
+                active_turn_keys = [
+                    f"{candidate.get('battle_sync_id')}" for candidate in active_turns
+                ]
+                if len(active_turn_keys) != len(set(active_turn_keys)):
+                    raise ValueError("snapshot contains multiple active turns for one battle")
             except ValueError as exc:
                 await self.send_error(client, str(exc), command_id)
                 return
@@ -509,22 +1562,22 @@ class HubServer:
 
         if command == "member.link_character":
             if client.role != "player":
-                await self.send_error(client, "Only a player can link their own character", command_id)
+                await self.send_error(client, "Только игрок может привязать своего персонажа", command_id)
                 return
             member = self._player_member(client)
             if member is None:
-                await self.send_error(client, "Player membership was not found", command_id)
+                await self.send_error(client, "Участник-игрок не найден", command_id)
                 return
             member_key, member_data = member
             member_sync_id = str(payload.get("member_sync_id", "")).strip()
             character = payload.get("character")
             if member_sync_id != member_key[1] or not isinstance(character, dict):
-                await self.send_error(client, "Invalid player character link", command_id)
+                await self.send_error(client, "Недопустимая привязка персонажа игрока", command_id)
                 return
             character_data = dict(character)
             character_sync_id = str(character_data.get("sync_id", "")).strip()
             if not character_sync_id:
-                await self.send_error(client, "Character requires sync_id", command_id)
+                await self.send_error(client, "Для персонажа требуется sync_id", command_id)
                 return
             if "bio_image" in character_data:
                 character_data.pop("bio_image", None)
@@ -535,7 +1588,7 @@ class HubServer:
                     existing_link = sync_key
                     break
             if existing_link is not None:
-                await self.send_error(client, "Character is already linked to another campaign member", command_id)
+                await self.send_error(client, "Персонаж уже привязан к другому участнику кампании", command_id)
                 return
 
             member_data = dict(member_data)
@@ -580,31 +1633,34 @@ class HubServer:
 
         if command in {"state.upsert", "state.delete"}:
             if client.role not in {"player", "gm"}:
-                await self.send_error(client, "Insufficient permissions", command_id)
+                await self.send_error(client, "Недостаточно прав", command_id)
                 return
             entity = str(payload.get("entity", ""))
+            if entity in {"battle", "battle_turn", "battle_action_request", "battle_log_entry"}:
+                await self.send_error(client, "Состояние боевого режима можно менять только командами боя", command_id)
+                return
             if entity not in SUPPORTED_ENTITIES:
-                await self.send_error(client, "Unsupported sync entity", command_id)
+                await self.send_error(client, "Неподдерживаемая сущность синхронизации", command_id)
                 return
 
             if command == "state.upsert":
                 raw_data = payload.get("data")
                 if not isinstance(raw_data, dict):
-                    await self.send_error(client, "Invalid state payload", command_id)
+                    await self.send_error(client, "Недопустимые данные состояния", command_id)
                     return
                 data = dict(raw_data)
                 sync_id = str(data.get("sync_id", "")).strip()
                 if not sync_id:
-                    await self.send_error(client, "State entity requires sync_id", command_id)
+                    await self.send_error(client, "Для сущности состояния требуется sync_id", command_id)
                     return
                 if entity == "character" and "bio_image" in data:
-                    await self.send_error(client, "Binary character images are not part of realtime sync", command_id)
+                    await self.send_error(client, "Изображения персонажей не входят в синхронизацию в реальном времени", command_id)
                     return
                 if not self._player_can_mutate(client, entity, data):
-                    await self.send_error(client, "Player may only modify their linked character", command_id)
+                    await self.send_error(client, "Игрок может изменять только привязанного к нему персонажа", command_id)
                     return
                 if not self._state_entry_belongs_to_campaign(entity, data):
-                    await self.send_error(client, "State entity is outside the hosted campaign", command_id)
+                    await self.send_error(client, "Сущность состояния не относится к размещённой кампании", command_id)
                     return
                 self.state[(entity, sync_id)] = data
                 event = await self.broadcast_event(
@@ -622,7 +1678,7 @@ class HubServer:
             else:
                 sync_id = str(payload.get("sync_id", "")).strip()
                 if not sync_id:
-                    await self.send_error(client, "Delete requires sync_id", command_id)
+                    await self.send_error(client, "Для удаления требуется sync_id", command_id)
                     return
                 current = self.state.get((entity, sync_id))
                 if current is None:
@@ -637,10 +1693,10 @@ class HubServer:
                     })
                     return
                 if not self._state_entry_belongs_to_campaign(entity, current):
-                    await self.send_error(client, "State entity is outside the hosted campaign", command_id)
+                    await self.send_error(client, "Сущность состояния не относится к размещённой кампании", command_id)
                     return
                 if not self._player_can_mutate(client, entity, current):
-                    await self.send_error(client, "Player may only modify their linked character", command_id)
+                    await self.send_error(client, "Игрок может изменять только привязанного к нему персонажа", command_id)
                     return
                 self._delete_state_entry(entity, sync_id)
                 event = await self.broadcast_event(
@@ -675,10 +1731,16 @@ class HubServer:
             return
         if not self.history:
             await self.send_snapshot(client)
+            active_battle = self._active_battle()
+            if active_battle is not None:
+                await self.send_battle_snapshot(client, active_battle[1])
             return
         oldest = self.history[0]["sequence"]
         if last_sequence < oldest - 1:
             await self.send_snapshot(client)
+            active_battle = self._active_battle()
+            if active_battle is not None:
+                await self.send_battle_snapshot(client, active_battle[1])
             return
         for event in self.history:
             if event["sequence"] > last_sequence:
@@ -687,7 +1749,7 @@ class HubServer:
 
 def build_app(hub: HubServer, *, port: int) -> FastAPI:
     hub.port = port
-    app = FastAPI(title="D&D Hub GM Server", version="0.5.0")
+    app = FastAPI(title="D&D Hub GM Server", version="0.6.1")
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
@@ -726,6 +1788,9 @@ def build_app(hub: HubServer, *, port: int) -> FastAPI:
             await hub.send_welcome(client)
             if hub.state:
                 await hub.send_snapshot(client)
+                active_battle = hub._active_battle()
+                if active_battle is not None:
+                    await hub.send_battle_snapshot(client, active_battle[1])
             await hub.broadcast_event(
                 "player.joined",
                 {"client_id": client.client_id, "display_name": client.display_name, "role": client.role},
@@ -735,14 +1800,14 @@ def build_app(hub: HubServer, *, port: int) -> FastAPI:
             while True:
                 raw = await websocket.receive_text()
                 if len(raw.encode("utf-8")) > MAX_MESSAGE_BYTES:
-                    await hub.send_error(client, "Message too large")
+                    await hub.send_error(client, "Сообщение слишком большое")
                     continue
                 import json
 
                 try:
                     message = json.loads(raw)
                 except json.JSONDecodeError:
-                    await hub.send_error(client, "Invalid JSON")
+                    await hub.send_error(client, "Недопустимый JSON")
                     continue
                 await hub.handle_command(client, message)
         except WebSocketDisconnect:

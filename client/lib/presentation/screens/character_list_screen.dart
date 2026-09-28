@@ -100,7 +100,7 @@ class _CharacterListScreenState extends State<CharacterListScreen> {
                 value: 'backup',
                 child: ListTile(
                   leading: Icon(Icons.backup_outlined),
-                  title: Text('Создать backup'),
+                  title: Text('Создать резервную копию'),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -108,7 +108,7 @@ class _CharacterListScreenState extends State<CharacterListScreen> {
                 value: 'restore',
                 child: ListTile(
                   leading: Icon(Icons.restore_outlined),
-                  title: Text('Восстановить backup'),
+                  title: Text('Восстановить резервную копию'),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -167,12 +167,12 @@ class _CharacterListScreenState extends State<CharacterListScreen> {
       final path = await ExportManager().exportBackup();
       if (!context.mounted || path == null) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Backup сохранён: $path')),
+        SnackBar(content: Text('Резервная копия сохранена: $path')),
       );
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Не удалось создать backup: $error')),
+        SnackBar(content: Text('Не удалось создать резервную копию: $error')),
       );
     }
   }
@@ -181,7 +181,7 @@ class _CharacterListScreenState extends State<CharacterListScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Восстановить backup?'),
+        title: const Text('Восстановить резервную копию?'),
         content: const Text(
           'Текущие локальные данные D&D Hub будут полностью заменены данными из backup. '
           'Перед восстановлением рекомендуется сделать backup текущего состояния.',
@@ -210,7 +210,7 @@ class _CharacterListScreenState extends State<CharacterListScreen> {
     final bytes = picked.files.single.bytes;
     if (bytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось прочитать backup-файл.')),
+        const SnackBar(content: Text('Не удалось прочитать файл резервной копии.')),
       );
       return;
     }
@@ -234,7 +234,7 @@ class _CharacterListScreenState extends State<CharacterListScreen> {
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Не удалось восстановить backup: $error')),
+        SnackBar(content: Text('Не удалось восстановить резервную копию: $error')),
       );
     }
   }

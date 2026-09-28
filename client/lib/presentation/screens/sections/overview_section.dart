@@ -183,7 +183,7 @@ class _OverviewSectionState extends State<OverviewSection> {
                       builder: (context) => AlertDialog(
                         title: const Text('Изменить опыт'),
                         content: SizedBox(width: 360, child: Column(mainAxisSize: MainAxisSize.min, children: [
-                          TextField(controller: controller, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Новый XP')),
+                          TextField(controller: controller, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Новый опыт')),
                           const SizedBox(height: 12),
                           TextField(controller: reason, maxLines: 2, decoration: const InputDecoration(labelText: 'Причина (необязательно)')),
                         ])),

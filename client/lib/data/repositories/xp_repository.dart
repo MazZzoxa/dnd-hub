@@ -24,7 +24,7 @@ class XpRepository {
     required String reason,
   }) async {
     if (delta == 0) {
-      throw ArgumentError.value(delta, 'delta', 'Изменение XP не может быть равно нулю.');
+      throw ArgumentError.value(delta, 'delta', 'Изменение опыта не может быть равно нулю.');
     }
     final db = await _database.database;
     final now = DateTime.now();

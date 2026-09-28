@@ -54,7 +54,7 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
                     const SizedBox(height: 14),
                     const Text('Кампаний пока нет', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 8),
-                    const Text('Создайте кампанию или подключитесь к игре GM.'),
+                    const Text('Создайте кампанию или подключитесь к игре ГМ.'),
                     const SizedBox(height: 18),
                     FilledButton.icon(onPressed: _create, icon: const Icon(Icons.add), label: const Text('Новая кампания')),
                   ],
@@ -127,7 +127,7 @@ class _CampaignTile extends StatelessWidget {
         title: Text(campaign.name),
         subtitle: Text(
           campaign.description.isEmpty
-              ? (joined ? 'Кампания GM • режим игрока' : 'Ваша кампания • режим GM')
+              ? (joined ? 'Кампания ГМ • режим игрока' : 'Ваша кампания • режим ГМ')
               : campaign.description,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,

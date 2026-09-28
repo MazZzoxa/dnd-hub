@@ -16,6 +16,17 @@ class SessionRepository {
     return rows.map(SessionModel.fromMap).toList();
   }
 
+  Future<SessionModel?> getBySyncId(String syncId) async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'campaign_sessions',
+      where: 'sync_id = ?',
+      whereArgs: [syncId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : SessionModel.fromMap(rows.first);
+  }
+
   Future<SessionModel?> getActive(int campaignId) async {
     final db = await _database.database;
     final rows = await db.query(

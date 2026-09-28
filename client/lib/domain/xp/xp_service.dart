@@ -32,7 +32,7 @@ class XpService {
   }) async {
     final id = character.id;
     if (id == null) throw StateError('Персонаж должен иметь id.');
-    if (delta == 0) throw ArgumentError.value(delta, 'delta', 'Изменение XP не может быть 0.');
+    if (delta == 0) throw ArgumentError.value(delta, 'delta', 'Изменение опыта не может быть 0.');
     final int newXp = (character.xp + delta).clamp(0, 1 << 30).toInt();
     final newLevel = XpLevelTable.levelForXp(newXp);
     final result = await _transactions.changeXp(

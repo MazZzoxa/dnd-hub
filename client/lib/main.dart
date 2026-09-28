@@ -13,12 +13,18 @@ import 'domain/providers/note_provider.dart';
 import 'domain/providers/spell_provider.dart';
 import 'domain/providers/spell_slot_provider.dart';
 import 'domain/providers/session_provider.dart';
+import 'domain/providers/battle_provider.dart';
 import 'network/connection_manager.dart';
 import 'network/services/sync_service.dart';
 import 'presentation/screens/character_list_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    debugPrint('D&D Hub FlutterError: ${details.exception}');
+    debugPrintStack(stackTrace: details.stack);
+  };
   final connectionManager = ConnectionManager();
   await connectionManager.initialize();
   final syncService = SyncService(connectionManager);
@@ -48,6 +54,7 @@ class DndHubApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => CampaignProvider(syncService: syncService, connectionManager: connectionManager)),
         ChangeNotifierProvider(create: (_) => XpProvider(syncService: syncService)),
         ChangeNotifierProvider(create: (_) => SessionProvider(syncService: syncService)),
+        ChangeNotifierProvider(create: (_) => BattleProvider(syncService: syncService)),
       ],
       child: MaterialApp(
         title: 'D&D Hub',

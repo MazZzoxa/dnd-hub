@@ -14,7 +14,7 @@ class CampaignService {
     final cleanName = name.trim();
     final cleanGm = gmName.trim();
     if (cleanName.isEmpty) throw ArgumentError.value(name, 'name', 'Название кампании обязательно.');
-    if (cleanGm.isEmpty) throw ArgumentError.value(gmName, 'gmName', 'Имя GM обязательно.');
+    if (cleanGm.isEmpty) throw ArgumentError.value(gmName, 'gmName', 'Имя ГМ обязательно.');
     final now = DateTime.now();
     final campaign = CampaignModel(name: cleanName, description: description.trim(), createdAt: now, updatedAt: now);
     final gm = CampaignMemberModel(campaignId: 0, name: cleanGm, role: CampaignRole.gm, clientId: clientId, createdAt: now);
@@ -52,7 +52,7 @@ class CampaignService {
 
 
   Future<int> addNetworkPlayer({required int campaignId, required String clientId, required String name}) async {
-    final cleanName = name.trim().isEmpty ? 'Player' : name.trim();
+    final cleanName = name.trim().isEmpty ? 'Игрок' : name.trim();
     final db = await DatabaseHelper.instance.database;
     final existing = await db.query(
       'campaign_members',
@@ -91,11 +91,11 @@ class CampaignService {
     final members = await _repository.getMembers(member.campaignId);
     final previous = members.firstWhere((m) => m.id == member.id);
     if (member.role == CampaignRole.player && previous.role == CampaignRole.gm) {
-      throw StateError('В кампании должен оставаться ровно один GM. Сначала назначьте нового GM.');
+      throw StateError('В кампании должен оставаться ровно один ГМ. Сначала назначьте нового ГМ.');
     }
     final gmCount = members.where((m) => m.role == CampaignRole.gm).length;
     if (member.role == CampaignRole.gm && previous.role != CampaignRole.gm && gmCount >= 1) {
-      throw StateError('В кампании может быть только один GM.');
+      throw StateError('В кампании может быть только один ГМ.');
     }
     final cleanName = member.name.trim();
     if (cleanName.isEmpty) throw ArgumentError.value(member.name, 'name', 'Имя участника обязательно.');
@@ -116,7 +116,7 @@ class CampaignService {
   Future<void> removeMember(CampaignMemberModel member) async {
     if (member.id == null) throw StateError('Участник должен иметь id.');
     if (member.role == CampaignRole.gm) {
-      throw StateError('Нельзя удалить единственного GM. Сначала назначьте нового GM.');
+      throw StateError('Нельзя удалить единственного ГМ. Сначала назначьте нового ГМ.');
     }
     await _repository.deleteMember(member.id!);
   }

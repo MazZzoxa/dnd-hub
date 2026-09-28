@@ -52,7 +52,7 @@ class _CharacterCampaignsCardState extends State<CharacterCampaignsCard> {
                       dense: true,
                       leading: const Icon(Icons.groups_outlined),
                       title: Text(membership['campaign_name']?.toString() ?? ''),
-                      subtitle: Text('${membership['member_name'] ?? ''} · ${membership['role'] == 'gm' ? 'GM' : 'Player'}', style: const TextStyle(color: AppTheme.textSecondary)),
+                      subtitle: Text('${membership['member_name'] ?? ''} · ${membership['role'] == 'gm' ? 'ГМ' : 'Игрок'}', style: const TextStyle(color: AppTheme.textSecondary)),
                     )),
             ]),
           ),

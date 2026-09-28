@@ -41,10 +41,10 @@ class _NetworkScreenState extends State<NetworkScreen> {
       if (name == null) return;
       final detail = switch (name) {
         'session.ready' => 'Сессия готова',
-        'player.joined' => 'Подключился: ${event.payload['display_name'] ?? 'Player'}',
-        'player.left' => 'Отключился: ${event.payload['display_name'] ?? 'Player'}',
+        'player.joined' => 'Подключился: ${event.payload['display_name'] ?? 'Игрок'}',
+        'player.left' => 'Отключился: ${event.payload['display_name'] ?? 'Игрок'}',
         'character.updated' => 'Получено изменение персонажа',
-        'pong' => 'Pong от GM Server',
+        'pong' => 'Ответ от сервера ГМ',
         'ack' => 'Команда подтверждена',
         'error' => 'Ошибка: ${event.payload['message'] ?? 'unknown'}',
         _ => name,
@@ -136,8 +136,8 @@ class _NetworkScreenState extends State<NetworkScreen> {
         leading: Icon(icon, color: manager.connected ? AppTheme.success : AppTheme.accent),
         title: Text(manager.connectionLabel),
         subtitle: Text(manager.hostingStarting
-            ? 'Запускается GM Server…'
-            : (manager.hosting ? 'Локальный GM Server • GM не считается игроком' : (manager.connected ? 'Транспорт: LAN / WebSocket' : 'Транспорт: не подключён'))),
+            ? 'Запускается сервер ГМ…'
+            : (manager.hosting ? 'Локальный сервер ГМ • ГМ не считается игроком' : (manager.connected ? 'Транспорт: локальная сеть / WebSocket' : 'Транспорт: не подключён'))),
       ),
     );
   }
@@ -148,12 +148,12 @@ class _NetworkScreenState extends State<NetworkScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Host Game', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+          const Text('Запустить сервер', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
           const SizedBox(height: 6),
           Text(
             campaign == null
-                ? 'Откройте нужную кампанию и запустите Host Game из её раздела.'
-                : 'GM управляет этой кампанией и запускает локальный сервер. Подключившиеся игроки будут автоматически добавлены в список участников.',
+                ? 'Откройте нужную кампанию и запустите сервер из её раздела.'
+                : 'ГМ управляет этой кампанией и запускает локальный сервер. Подключившиеся игроки будут автоматически добавлены в список участников.',
             style: const TextStyle(color: AppTheme.textSecondary),
           ),
           const SizedBox(height: 12),
@@ -166,13 +166,13 @@ class _NetworkScreenState extends State<NetworkScreen> {
               label: Text(
                 manager.hostingStarting
                     ? 'Запуск сервера…'
-                    : (manager.hosting ? 'Сервер запущен' : 'Host Game'),
+                    : (manager.hosting ? 'Сервер запущен' : 'Запустить сервер'),
               ),
             ),
           if (manager.hostingStarting) ...[
             const SizedBox(height: 10),
             const Text(
-              'Запускается GM Server. Это может занять несколько секунд…',
+              'Запускается сервер ГМ. Это может занять несколько секунд…',
               style: TextStyle(color: AppTheme.textSecondary),
             ),
           ],
@@ -208,19 +208,19 @@ class _NetworkScreenState extends State<NetworkScreen> {
                 const SizedBox(height: 6),
                 Text(invite, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                 const SizedBox(height: 10),
-                if (ips.isNotEmpty) Text('LAN: ${ips.join(', ')}', style: const TextStyle(fontSize: 12)),
+                if (ips.isNotEmpty) Text('Локальная сеть: ${ips.join(', ')}', style: const TextStyle(fontSize: 12)),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: () => Clipboard.setData(ClipboardData(text: invite)),
                   icon: const Icon(Icons.copy_outlined),
-                  label: const Text('Скопировать invite'),
+                  label: const Text('Скопировать приглашение'),
                 ),
               ]),
             ),
           ]),
           const SizedBox(height: 10),
           const Text(
-            'QR — резервный способ. В обычном сценарии игрок использует Find Game и выбирает кампанию из списка.',
+            'QR — резервный способ. В обычном сценарии игрок открывает «Найти игру» и выбирает кампанию из списка.',
             style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
           ),
         ]);
@@ -249,7 +249,7 @@ class _NetworkScreenState extends State<NetworkScreen> {
   }
 
   String _gmName(CampaignModel campaign) {
-    return 'GM';
+    return 'ГМ';
   }
 
   Widget _findCard(ConnectionManager manager) {
@@ -258,7 +258,7 @@ class _NetworkScreenState extends State<NetworkScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            const Expanded(child: Text('Find Game', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800))),
+            const Expanded(child: Text('Найти игру', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800))),
             FilledButton.icon(
               onPressed: _searching ? null : () => _findGames(manager),
               icon: _searching ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search),
@@ -277,7 +277,7 @@ class _NetworkScreenState extends State<NetworkScreen> {
                     leading: const CircleAvatar(child: Icon(Icons.casino_outlined)),
                     title: Text(game.campaignName),
                     subtitle: Text('${game.gmName} · ${game.players}/${game.maxPlayers} игроков · ${game.host}:${game.port}'),
-                    trailing: FilledButton(onPressed: () => _join(manager, game), child: const Text('Join')),
+                    trailing: FilledButton(onPressed: () => _join(manager, game), child: const Text('Подключиться')),
                   ),
                 )),
         ]),
@@ -299,7 +299,7 @@ class _NetworkScreenState extends State<NetworkScreen> {
   }
 
   Future<void> _join(ConnectionManager manager, NearbyGame game) async {
-    final controller = TextEditingController(text: 'Player');
+    final controller = TextEditingController(text: 'Игрок');
     final name = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
@@ -307,7 +307,7 @@ class _NetworkScreenState extends State<NetworkScreen> {
         content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(labelText: 'Имя игрока')),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')),
-          FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Join')),
+          FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Подключиться')),
         ],
       ),
     );
@@ -328,16 +328,16 @@ class _NetworkScreenState extends State<NetworkScreen> {
     return Card(
       child: ExpansionTile(
         title: const Text('QR / ручное подключение'),
-        subtitle: const Text('Резерв на случай, если discovery не проходит через Wi-Fi изоляцию.'),
+        subtitle: const Text('Резерв на случай, если автоматический поиск не проходит из-за изоляции Wi‑Fi.'),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         children: [
-          TextField(controller: host, decoration: const InputDecoration(labelText: 'GM IP')),
+          TextField(controller: host, decoration: const InputDecoration(labelText: 'IP ГМ')),
           const SizedBox(height: 8),
           TextField(controller: port, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Порт')),
           const SizedBox(height: 8),
-          TextField(controller: campaign, decoration: const InputDecoration(labelText: 'Campaign sync_id')),
+          TextField(controller: campaign, decoration: const InputDecoration(labelText: 'sync_id кампании')),
           const SizedBox(height: 8),
-          TextField(controller: token, decoration: const InputDecoration(labelText: 'Invite token')),
+          TextField(controller: token, decoration: const InputDecoration(labelText: 'Токен приглашения')),
           const SizedBox(height: 10),
           Align(alignment: Alignment.centerLeft, child: FilledButton.icon(onPressed: () => _joinManual(manager, host, port, campaign, token), icon: const Icon(Icons.login), label: const Text('Подключиться'))),
         ],
@@ -368,7 +368,7 @@ class _NetworkScreenState extends State<NetworkScreen> {
   }
 
   Future<String?> _askPlayerName() async {
-    final controller = TextEditingController(text: 'Player');
+    final controller = TextEditingController(text: 'Игрок');
     final name = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
@@ -376,7 +376,7 @@ class _NetworkScreenState extends State<NetworkScreen> {
         content: TextField(controller: controller, autofocus: true),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')),
-          FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Join')),
+          FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Подключиться')),
         ],
       ),
     );

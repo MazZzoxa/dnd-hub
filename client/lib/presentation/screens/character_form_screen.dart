@@ -193,7 +193,7 @@ class _CharacterFormScreenState extends State<CharacterFormScreen> {
         readOnly: true,
         decoration: const InputDecoration(
           labelText: 'Уровень',
-          helperText: 'Рассчитывается из XP',
+          helperText: 'Рассчитывается из опыта',
         ),
       );
 

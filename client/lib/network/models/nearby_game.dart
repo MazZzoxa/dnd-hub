@@ -30,7 +30,7 @@ class NearbyGame {
       port: (json['port'] as num?)?.toInt() ?? 8765,
       campaignId: json['campaign_id']?.toString() ?? '',
       campaignName: json['campaign_name']?.toString() ?? 'D&D Hub',
-      gmName: json['gm_name']?.toString() ?? 'GM',
+      gmName: json['gm_name']?.toString() ?? 'ГМ',
       players: (json['players'] as num?)?.toInt() ?? 0,
       maxPlayers: (json['max_players'] as num?)?.toInt() ?? 5,
       inviteToken: json['invite_token']?.toString() ?? '',

@@ -7,9 +7,11 @@ import '../../data/models/campaign_member_model.dart';
 import '../../data/models/character_model.dart';
 import '../../data/models/session_model.dart';
 import '../../domain/providers/campaign_provider.dart';
+import '../../domain/providers/battle_provider.dart';
 import '../../domain/providers/character_provider.dart';
 import '../../domain/providers/session_provider.dart';
 import 'gm_character_sheet_screen.dart';
+import 'gm_battle_screen.dart';
 
 class GmDashboardScreen extends StatefulWidget {
   const GmDashboardScreen({super.key});
@@ -33,6 +35,13 @@ class _GmDashboardScreenState extends State<GmDashboardScreen> {
       final campaign = context.read<CampaignProvider>().selected;
       if (campaign?.id != null) {
         await context.read<SessionProvider>().load(campaign!.id!);
+        final activeSession = context.read<SessionProvider>().active;
+        if (activeSession?.id != null) {
+          await context.read<BattleProvider>().loadForSession(
+                campaignId: campaign.id!,
+                sessionId: activeSession!.id!,
+              );
+        }
         if (context.read<CharacterProvider>().characters.isEmpty) {
           await context.read<CharacterProvider>().loadCharacters();
         }
@@ -49,7 +58,7 @@ class _GmDashboardScreenState extends State<GmDashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('GM · ${campaign.name}'),
+        title: Text('ГМ · ${campaign.name}'),
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -122,7 +131,7 @@ class _OverviewView extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(18),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Row(children: [Icon(Icons.shield_outlined, color: AppTheme.primary), SizedBox(width: 8), Text('GM Dashboard', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800))]),
+              const Row(children: [Icon(Icons.shield_outlined, color: AppTheme.primary), SizedBox(width: 8), Text('Панель ГМ', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800))]),
               const SizedBox(height: 8),
               Text(campaigns.selected?.description.isEmpty == false ? campaigns.selected!.description : 'Управление локальной кампанией и игровыми сессиями.', style: const TextStyle(color: AppTheme.textSecondary)),
               const SizedBox(height: 18),
@@ -278,7 +287,7 @@ class _PlayerCard extends StatelessWidget {
               else ...[
                 Text('${character!.name} · ур. ${character!.level}', style: const TextStyle(color: AppTheme.textSecondary)),
                 const SizedBox(height: 4),
-                Text('HP ${character!.hp}/${character!.maxHp} · AC ${character!.armorClass} · Инициатива ${character!.initiative >= 0 ? '+' : ''}${character!.initiative}', style: const TextStyle(fontSize: 13)),
+                Text('Хиты ${character!.hp}/${character!.maxHp} · КД ${character!.armorClass} · Инициатива ${character!.initiative >= 0 ? '+' : ''}${character!.initiative}', style: const TextStyle(fontSize: 13)),
               ],
             ]),
           ),
@@ -296,7 +305,7 @@ class _GmMemberCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (member == null) return const SizedBox.shrink();
-    return Card(child: ListTile(leading: const Icon(Icons.shield_outlined, color: AppTheme.primary), title: Text('GM: ${member!.name}'), subtitle: const Text('Текущий GM кампании')));
+    return Card(child: ListTile(leading: const Icon(Icons.shield_outlined, color: AppTheme.primary), title: Text('ГМ: ${member!.name}'), subtitle: const Text('Текущий ГМ кампании')));
   }
 }
 
@@ -324,6 +333,7 @@ class _SessionViewState extends State<_SessionView> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<SessionProvider>();
+    final battleProvider = context.watch<BattleProvider>();
     final active = provider.active;
     if (active != null && _loadedSessionId != active.id) {
       _loadedSessionId = active.id;
@@ -334,7 +344,7 @@ class _SessionViewState extends State<_SessionView> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Row(children: [const Expanded(child: Text('Session Tools', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800))), if (active == null) FilledButton.icon(onPressed: () => _start(context), icon: const Icon(Icons.play_arrow), label: const Text('Начать сессию'))]),
+        Row(children: [const Expanded(child: Text('Инструменты сессии', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800))), if (active == null) FilledButton.icon(onPressed: () => _start(context), icon: const Icon(Icons.play_arrow), label: const Text('Начать сессию'))]),
         const SizedBox(height: 12),
         if (active == null)
           const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('Активной сессии нет. Создайте её перед игрой.', style: TextStyle(color: AppTheme.textSecondary))))
@@ -347,12 +357,37 @@ class _SessionViewState extends State<_SessionView> {
                 const SizedBox(height: 14),
                 TextField(controller: _title, decoration: const InputDecoration(labelText: 'Название сессии')),
                 const SizedBox(height: 12),
-                TextField(controller: _notes, minLines: 8, maxLines: 16, decoration: const InputDecoration(labelText: 'Заметки GM', alignLabelWithHint: true, hintText: 'NPC, события, решения игроков, награды и другие заметки по ходу игры…')),
+                TextField(controller: _notes, minLines: 8, maxLines: 16, decoration: const InputDecoration(labelText: 'Заметки ГМ', alignLabelWithHint: true, hintText: 'НИП, события, решения игроков, награды и другие заметки по ходу игры…')),
                 const SizedBox(height: 14),
                 Row(children: [FilledButton.icon(onPressed: _saving ? null : _save, icon: const Icon(Icons.save_outlined), label: Text(_saving ? 'Сохранение…' : 'Сохранить')), const SizedBox(width: 10), OutlinedButton.icon(onPressed: () => _complete(context), icon: const Icon(Icons.stop_circle_outlined), label: const Text('Завершить'))]),
               ]),
             ),
           ),
+        if (active != null) ...[
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: Icon(
+                battleProvider.isActive
+                    ? Icons.flash_on
+                    : Icons.sports_kabaddi_outlined,
+              ),
+              title: Text(
+                battleProvider.isActive ? '⚔ Боевой режим · активен' : 'Боевой режим',
+              ),
+              subtitle: Text(
+                battleProvider.isActive
+                    ? 'Боевое состояние группы синхронизируется между ГМ и игроками.'
+                    : 'Запустите отдельный бой внутри текущей сессии.',
+              ),
+              trailing: FilledButton(
+                onPressed: () => _openBattle(context, active),
+                child: Text(battleProvider.isActive ? 'Открыть' : 'Запустить'),
+              ),
+              onTap: () => _openBattle(context, active),
+            ),
+          ),
+        ],
         const SizedBox(height: 14),
         const Text('История сессий', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
@@ -368,6 +403,18 @@ class _SessionViewState extends State<_SessionView> {
     );
   }
 
+  void _openBattle(BuildContext context, SessionModel session) {
+    if (session.id == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GmBattleScreen(
+          campaignId: widget.campaignId,
+          sessionId: session.id!,
+        ),
+      ),
+    );
+  }
+
   Future<void> _start(BuildContext context) async {
     final controller = TextEditingController(text: 'Игровая сессия');
     final title = await showDialog<String>(context: context, builder: (_) => AlertDialog(title: const Text('Начать сессию'), content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(labelText: 'Название')), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')), FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Начать'))]));
@@ -375,6 +422,13 @@ class _SessionViewState extends State<_SessionView> {
     if (title == null || !context.mounted) return;
     try {
       await context.read<SessionProvider>().startSession(campaignId: widget.campaignId, title: title);
+      final session = context.read<SessionProvider>().active;
+      if (session?.id != null) {
+        await context.read<BattleProvider>().loadForSession(
+              campaignId: widget.campaignId,
+              sessionId: session!.id!,
+            );
+      }
       _loadedSessionId = null;
     } catch (error) {
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));

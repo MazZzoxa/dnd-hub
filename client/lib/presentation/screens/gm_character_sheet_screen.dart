@@ -33,7 +33,7 @@ class GmCharacterSheetScreen extends StatelessWidget {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16),
-            child: Center(child: Text('Просмотр GM', style: TextStyle(color: AppTheme.textSecondary))),
+            child: Center(child: Text('Просмотр ГМ', style: TextStyle(color: AppTheme.textSecondary))),
           ),
         ],
       ),
@@ -163,14 +163,14 @@ class _StatsCard extends StatelessWidget {
           spacing: 22,
           runSpacing: 14,
           children: [
-            _Stat(label: 'HP', value: '${character.hp}/${character.maxHp}', icon: Icons.favorite_outline),
-            _Stat(label: 'Врем. HP', value: '${character.temporaryHp}', icon: Icons.shield_outlined),
-            _Stat(label: 'AC', value: '${character.armorClass}', icon: Icons.security_outlined),
+            _Stat(label: 'Хиты', value: '${character.hp}/${character.maxHp}', icon: Icons.favorite_outline),
+            _Stat(label: 'Врем. хиты', value: '${character.temporaryHp}', icon: Icons.shield_outlined),
+            _Stat(label: 'КД', value: '${character.armorClass}', icon: Icons.security_outlined),
             _Stat(label: 'Инициатива', value: '${character.initiative >= 0 ? '+' : ''}${character.initiative}', icon: Icons.flash_on_outlined),
             _Stat(label: 'Скорость', value: '${character.speed}', icon: Icons.directions_run_outlined),
             _Stat(label: 'Бонус владения', value: '+${character.proficiencyBonus}', icon: Icons.stars_outlined),
-            _Stat(label: 'XP', value: '${character.xp}', icon: Icons.auto_awesome_outlined),
-            _Stat(label: 'Золото', value: '${character.gold} GP', icon: Icons.monetization_on_outlined),
+            _Stat(label: 'Опыт', value: '${character.xp}', icon: Icons.auto_awesome_outlined),
+            _Stat(label: 'Золото', value: '${character.gold}', icon: Icons.monetization_on_outlined),
           ],
         ),
       ),
