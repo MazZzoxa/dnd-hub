@@ -18,6 +18,7 @@ extension BattleStatusX on BattleStatus {
 class BattleModel {
   final int? id;
   final String syncId;
+  final String name;
   final int campaignId;
   final int sessionId;
   final BattleStatus status;
@@ -29,6 +30,7 @@ class BattleModel {
   const BattleModel({
     this.id,
     this.syncId = '',
+    this.name = '',
     required this.campaignId,
     required this.sessionId,
     this.status = BattleStatus.active,
@@ -41,6 +43,7 @@ class BattleModel {
   BattleModel copyWith({
     int? id,
     String? syncId,
+    String? name,
     int? campaignId,
     int? sessionId,
     BattleStatus? status,
@@ -54,6 +57,7 @@ class BattleModel {
     return BattleModel(
       id: id ?? this.id,
       syncId: syncId ?? this.syncId,
+      name: name ?? this.name,
       campaignId: campaignId ?? this.campaignId,
       sessionId: sessionId ?? this.sessionId,
       status: status ?? this.status,
@@ -67,6 +71,7 @@ class BattleModel {
   Map<String, dynamic> toMap() => {
         if (id != null) 'id': id,
         'sync_id': syncId,
+        'name': name,
         'campaign_id': campaignId,
         'session_id': sessionId,
         'status': status.dbValue,
@@ -79,6 +84,7 @@ class BattleModel {
   factory BattleModel.fromMap(Map<String, dynamic> map) => BattleModel(
         id: map['id'] as int?,
         syncId: map['sync_id']?.toString() ?? '',
+        name: map['name']?.toString() ?? '',
         campaignId: map['campaign_id'] as int,
         sessionId: map['session_id'] as int,
         status: BattleStatusX.fromDb(map['status']?.toString()),

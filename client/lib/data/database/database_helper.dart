@@ -32,7 +32,9 @@ class DatabaseHelper {
   // v9: добавлена transport-independent sync_id для сетевой идентичности.
   // v11: добавлены battles для Battle Mode MVP.
   // v12: добавлены turns, action requests и append-only combat journal.
-  static const _dbVersion = 12;
+  // v14: добавлено название боя в battles.
+  // v15: Session Rewards теперь сохраняют переход уровня для Session Overview.
+  static const _dbVersion = 15;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -86,6 +88,9 @@ class DatabaseHelper {
     await _ensureV06Schema(db);
     await _ensureSyncIdSchema(db);
     await _ensureBattleWorkspaceSchema(db);
+    await _ensureBattleNameColumn(db);
+    await _ensureV07SessionWorkspaceSchema(db);
+    await _ensureV07SessionRewardLevelColumns(db);
   }
 
   Future<void> _ensureV06Schema(Database db) async {
@@ -186,6 +191,7 @@ class DatabaseHelper {
       CREATE TABLE IF NOT EXISTS battles (
         sync_id TEXT NOT NULL DEFAULT '',
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL DEFAULT '',
         campaign_id INTEGER NOT NULL,
         session_id INTEGER NOT NULL,
         status TEXT NOT NULL CHECK (status IN ('active', 'completed')),
@@ -197,6 +203,14 @@ class DatabaseHelper {
         FOREIGN KEY (session_id) REFERENCES campaign_sessions (id) ON DELETE CASCADE
       )
     ''');
+  }
+
+  Future<void> _ensureBattleNameColumn(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(battles)');
+    final hasName = columns.any((row) => row['name']?.toString() == 'name');
+    if (!hasName) {
+      await db.execute("ALTER TABLE battles ADD COLUMN name TEXT NOT NULL DEFAULT ''");
+    }
   }
 
   Future<void> _ensureBattleWorkspaceSchema(Database db) async {
@@ -693,6 +707,104 @@ class DatabaseHelper {
     );
   }
 
+  Future<void> _ensureV07SessionRewardLevelColumns(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(session_rewards)');
+    final names = columns.map((row) => row['name']?.toString()).whereType<String>().toSet();
+    if (!names.contains('level_before')) {
+      await db.execute('ALTER TABLE session_rewards ADD COLUMN level_before INTEGER NOT NULL DEFAULT 1');
+    }
+    if (!names.contains('level_after')) {
+      await db.execute('ALTER TABLE session_rewards ADD COLUMN level_after INTEGER NOT NULL DEFAULT 1');
+    }
+  }
+
+  Future<void> _ensureV07SessionWorkspaceSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS session_notes (
+        sync_id TEXT NOT NULL DEFAULT '',
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        content TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES campaign_sessions (id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_session_notes_session ON session_notes(session_id, created_at DESC, id DESC)');
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_notes_sync_id ON session_notes(sync_id) WHERE sync_id <> ''");
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS session_events (
+        sync_id TEXT NOT NULL DEFAULT '',
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        metadata TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (session_id) REFERENCES campaign_sessions (id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events(session_id, created_at ASC, id ASC)');
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_events_sync_id ON session_events(sync_id) WHERE sync_id <> ''");
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS session_rewards (
+        sync_id TEXT NOT NULL DEFAULT '',
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL,
+        character_sync_id TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'xp',
+        amount INTEGER NOT NULL,
+        reason TEXT NOT NULL DEFAULT '',
+        level_before INTEGER NOT NULL DEFAULT 1,
+        level_after INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL DEFAULT '',
+        FOREIGN KEY (session_id) REFERENCES campaign_sessions (id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_session_rewards_session ON session_rewards(session_id, created_at DESC, id DESC)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_session_rewards_character ON session_rewards(character_sync_id, created_at DESC, id DESC)');
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_rewards_sync_id ON session_rewards(sync_id) WHERE sync_id <> ''");
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS session_loot (
+        sync_id TEXT NOT NULL DEFAULT '',
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL,
+        name TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        quantity INTEGER NOT NULL DEFAULT 1,
+        source TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'claimed')),
+        claimed_by_character_sync_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES campaign_sessions (id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_session_loot_session ON session_loot(session_id, created_at DESC, id DESC)');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_session_loot_status ON session_loot(session_id, status)');
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_loot_sync_id ON session_loot(sync_id) WHERE sync_id <> ''");
+
+    for (final table in ['session_notes', 'session_events', 'session_rewards', 'session_loot']) {
+      final rows = await db.query(table, columns: ['rowid', 'sync_id'], where: "sync_id = '' OR sync_id IS NULL");
+      if (rows.isEmpty) continue;
+      await db.transaction((txn) async {
+        for (final row in rows) {
+          await txn.rawUpdate(
+            "UPDATE $table SET sync_id = lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6))) WHERE rowid = ?",
+            [row['rowid']],
+          );
+        }
+      });
+    }
+  }
+
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       // Расширяем таблицу characters новыми колонками (см. _onCreate v2).
@@ -913,6 +1025,7 @@ class DatabaseHelper {
         CREATE TABLE IF NOT EXISTS battles (
           sync_id TEXT NOT NULL DEFAULT '',
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL DEFAULT '',
           campaign_id INTEGER NOT NULL,
           session_id INTEGER NOT NULL,
           status TEXT NOT NULL CHECK (status IN ('active', 'completed')),
@@ -931,6 +1044,45 @@ class DatabaseHelper {
 
     if (oldVersion < 12) {
       await _ensureBattleWorkspaceSchema(db);
+    }
+
+    if (oldVersion < 13) {
+      await _ensureV07SessionWorkspaceSchema(db);
+      final legacySessions = await db.query(
+        'campaign_sessions',
+        columns: const ['id', 'notes'],
+        where: "notes <> '' AND notes IS NOT NULL",
+      );
+      for (final row in legacySessions) {
+        final sessionId = row['id'] as int?;
+        final legacyNotes = row['notes']?.toString().trim() ?? '';
+        if (sessionId == null || legacyNotes.isEmpty) continue;
+        final existing = await db.query(
+          'session_notes',
+          columns: const ['id'],
+          where: 'session_id = ?',
+          whereArgs: [sessionId],
+          limit: 1,
+        );
+        if (existing.isNotEmpty) continue;
+        final now = DateTime.now().toUtc().toIso8601String();
+        await db.insert('session_notes', {
+          'sync_id': 'legacy-${sessionId}-${DateTime.now().microsecondsSinceEpoch}',
+          'session_id': sessionId,
+          'title': 'Старые заметки',
+          'content': legacyNotes,
+          'created_at': now,
+          'updated_at': now,
+        });
+      }
+    }
+
+    if (oldVersion < 14) {
+      await _ensureBattleNameColumn(db);
+    }
+
+    if (oldVersion < 15) {
+      await _ensureV07SessionRewardLevelColumns(db);
     }
   }
 

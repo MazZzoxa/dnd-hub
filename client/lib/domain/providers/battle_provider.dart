@@ -15,6 +15,8 @@ import '../../data/repositories/battle_turn_repository.dart';
 import '../../data/repositories/campaign_repository.dart';
 import '../../data/repositories/character_repository.dart';
 import '../../data/repositories/session_repository.dart';
+import '../../data/repositories/session_workspace_repository.dart';
+import '../../data/models/session_event_model.dart';
 import '../../network/protocol/network_message.dart';
 import '../../network/services/sync_ids.dart';
 import '../../network/services/sync_service.dart';
@@ -28,6 +30,7 @@ class BattleProvider extends ChangeNotifier {
   final CharacterRepository _characterRepository;
   final CampaignRepository _campaignRepository;
   final SessionRepository _sessionRepository;
+  final SessionWorkspaceRepository _sessionWorkspaceRepository;
   final BattleTurnRepository _turnRepository;
   final BattleActionRequestRepository _actionRequestRepository;
   final BattleLogRepository _logRepository;
@@ -41,6 +44,7 @@ class BattleProvider extends ChangeNotifier {
     CharacterRepository? characterRepository,
     CampaignRepository? campaignRepository,
     SessionRepository? sessionRepository,
+    SessionWorkspaceRepository? sessionWorkspaceRepository,
     BattleTurnRepository? turnRepository,
     BattleActionRequestRepository? actionRequestRepository,
     BattleLogRepository? logRepository,
@@ -50,6 +54,7 @@ class BattleProvider extends ChangeNotifier {
         _characterRepository = characterRepository ?? CharacterRepository(),
         _campaignRepository = campaignRepository ?? CampaignRepository(),
         _sessionRepository = sessionRepository ?? SessionRepository(),
+        _sessionWorkspaceRepository = sessionWorkspaceRepository ?? SessionWorkspaceRepository(),
         _turnRepository = turnRepository ?? BattleTurnRepository(),
         _actionRequestRepository =
             actionRequestRepository ?? BattleActionRequestRepository(),
@@ -137,7 +142,7 @@ class BattleProvider extends ChangeNotifier {
     );
   }
 
-  Future<void> startBattle(SessionModel session) async {
+  Future<void> startBattle(SessionModel session, {String name = ''}) async {
     if (session.id == null || session.syncId.trim().isEmpty) {
       throw StateError(
         'У сессии отсутствует локальный или сетевой идентификатор.',
@@ -147,7 +152,10 @@ class BattleProvider extends ChangeNotifier {
     _service.validateStart(session: session, activeBattle: active);
 
     if (_syncService?.connected == true) {
-      await _syncService!.startBattle(sessionSyncId: session.syncId);
+      await _syncService!.startBattle(
+        sessionSyncId: session.syncId,
+        battleName: name,
+      );
       return;
     }
 
@@ -158,8 +166,10 @@ class BattleProvider extends ChangeNotifier {
     }
 
     final now = DateTime.now();
+    final battleName = name.trim().isEmpty ? 'Бой' : name.trim();
     final localBattle = BattleModel(
       syncId: SyncIds.newId(),
+      name: battleName,
       campaignId: session.campaignId,
       sessionId: session.id!,
       status: BattleStatus.active,
@@ -168,6 +178,17 @@ class BattleProvider extends ChangeNotifier {
       updatedAt: now,
     );
     await _repository.create(localBattle);
+    await _sessionWorkspaceRepository.createEvent(
+      SessionEventModel(
+        syncId: SyncIds.newId(),
+        sessionId: session.id!,
+        type: 'battle_started',
+        title: '⚔ $battleName',
+        metadata: {'battle_sync_id': localBattle.syncId},
+        createdAt: now,
+        createdBy: _syncService?.clientId ?? 'local',
+      ),
+    );
     await loadForSession(
       campaignId: session.campaignId,
       sessionId: session.id!,
@@ -225,6 +246,17 @@ class BattleProvider extends ChangeNotifier {
       updatedAt: now,
     );
     await _repository.update(completed);
+    await _sessionWorkspaceRepository.createEvent(
+      SessionEventModel(
+        syncId: SyncIds.newId(),
+        sessionId: completed.sessionId,
+        type: 'battle_finished',
+        title: '⚔ ${completed.name.trim().isEmpty ? 'Бой' : completed.name} завершён',
+        metadata: {'battle_sync_id': completed.syncId},
+        createdAt: now,
+        createdBy: _syncService?.clientId ?? 'local',
+      ),
+    );
     await loadForSession(
       campaignId: completed.campaignId,
       sessionId: completed.sessionId,

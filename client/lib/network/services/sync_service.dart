@@ -123,10 +123,72 @@ class SyncService {
     }
   }
 
-  Future<void> startBattle({required String sessionSyncId}) async {
+  Future<void> grantSessionXp({
+    required String sessionSyncId,
+    required String characterSyncId,
+    required int amount,
+    String reason = '',
+  }) async {
+    final response = await _sendAndWaitForAck(
+      'session.reward.apply',
+      payload: {
+        'session_sync_id': sessionSyncId,
+        'character_sync_id': characterSyncId,
+        'type': 'xp',
+        'amount': amount,
+        'reason': reason,
+      },
+    );
+
+    // The server ACK carries the authoritative post-operation state so the
+    // GM device does not have to rely on a later snapshot/reconnect to see
+    // the new XP and level locally.
+    final character = response.payload['character'];
+    if (character is Map) {
+      await store.applyEntity(
+        'character',
+        character.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    final reward = response.payload['reward'];
+    if (reward is Map) {
+      await store.applyEntity(
+        'session_reward',
+        reward.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+    final transaction = response.payload['xp_transaction'];
+    if (transaction is Map) {
+      await store.applyEntity(
+        'xp_transaction',
+        transaction.map((key, value) => MapEntry(key.toString(), value)),
+      );
+    }
+  }
+
+  Future<void> claimSessionLoot({
+    required String lootSyncId,
+    required String characterSyncId,
+  }) async {
+    await _sendAndWaitForAck(
+      'session.loot.claim',
+      payload: {
+        'loot_sync_id': lootSyncId,
+        'character_sync_id': characterSyncId,
+      },
+    );
+  }
+
+  Future<void> startBattle({
+    required String sessionSyncId,
+    String battleName = '',
+  }) async {
     await _sendAndWaitForAck(
       'battle.start',
-      payload: {'session_sync_id': sessionSyncId},
+      payload: {
+        'session_sync_id': sessionSyncId,
+        'battle_name': battleName,
+      },
     );
   }
 
@@ -337,6 +399,13 @@ class SyncService {
           await store.applyEntity(
             'battle',
             battle.map((key, value) => MapEntry(key.toString(), value)),
+          );
+        }
+        final sessionEvent = message.payload['session_event'];
+        if (sessionEvent is Map) {
+          await store.applyEntity(
+            'session_event',
+            sessionEvent.map((key, value) => MapEntry(key.toString(), value)),
           );
         }
       }

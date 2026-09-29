@@ -2,8 +2,8 @@
 
 A local-first, cross-platform D&D character manager built with Flutter — a fast, offline digital character sheet for use during actual game sessions.
 
-**Current version:** `v0.6.1`  
-**Status:** `v0.6.1` extends Battle Mode into a synchronized combat workspace: GM-controlled turns, character Overview/Actions, integrated dice rolls, Self/Ally/External targets, Action Requests with GM approval/modification/rejection, and an append-only Combat Journal. The app remains a combat-management tool rather than a full combat engine.  
+**Current version:** `v0.7.0`  
+**Status:** `v0.7.0` turns each Session into a persistent gameplay workspace with Journal, Events, XP Rewards, Loot and a unified History timeline, while keeping Battle as a separate workspace inside the Session.  
 **Author:** [@MazZzoxa](https://github.com/MazZzoxa)
 
 🇬🇧 [English](#-dd-hub) · 🇷🇺 [Русский](#-dd-hub-1)
@@ -22,7 +22,7 @@ D&D Hub is a local-first digital D&D character manager designed to be used direc
 
 The main principle is **local-first**: no account and no mandatory Internet connection are required. Character, campaign and progression data remain stored locally in SQLite. During a hosted local game, the GM runs a temporary local FastAPI/WebSocket server and player devices keep a local SQLite replica. The GM and Player use different campaign interfaces and permissions.
 
-### Features — v0.6.1
+### Features — v0.7.0
 
 **Character management**
 
@@ -85,6 +85,22 @@ The main principle is **local-first**: no account and no mandatory Internet conn
 - Structured append-only Combat Journal with the last 100 events restored to reconnecting clients
 - Existing direct GM Battle tools for Damage / Healing / Temporary HP remain available
 - No enemies/NPCs, automatic initiative tracking, rounds, automatic turn order, conditions, battle map or automatic combat-rule resolution
+
+**Session Workspace — v0.7.0**
+
+- Session Workspace for both GM and Player
+- Separate Session Journal with independently editable notes
+- Session Events for gameplay events rather than database/audit operations
+- XP Rewards linked to existing Character XP and XP transaction history
+- Loot with `available → claimed` workflow before it enters Character Inventory
+- Atomic GM commands for XP rewards and Loot claiming
+- Unified Session History assembled from Session Events and the existing Battle Combat Journal
+- Battle start/finish events appear in Session History without duplicating Battle Journal data
+- Session start, resume and finish are recorded as Session Events
+- Session Overview shows counts for notes, events, loot, battles and level-ups
+- Session participants can be opened in a detailed read-only character view
+- v0.6.1 `Session.notes` remains as legacy data and is migrated into a Session Note when upgrading the database
+- GM has write access; Player has read-only Session Workspace access
 
 **Interface**
 
@@ -186,7 +202,7 @@ The project follows a **local-first → library → campaign → GM → sync →
 | **v0.4** ✅ | GM Mode, GM character viewer and local Session Tools |
 | **v0.5.0** ✅ | LAN/WebSocket networking, automatic Player membership, GM/Player interfaces, campaign permissions and recovery |
 | **v0.6.1** ✅ | Battle Workspace: turns, Actions, targets, Action Requests, GM review and Combat Journal |
-| v0.7 | Extended session/gameplay tools |
+| **v0.7.0** ✅ | Extended Session Workspace: Journal, Events, Rewards, Loot and unified History |
 | v1.0 | Complete core product |
 | v1.1+ | World system, AI assistant, AI GM |
 
@@ -210,7 +226,7 @@ D&D Hub — кроссплатформенный **local-first** менедже�
 
 Главный принцип — **local-first**: аккаунт, сервер и обязательное подключение к Интернету не требуются. Данные персонажей, кампаний и прогрессии хранятся локально в SQLite. Во время локальной игры GM запускает временный локальный FastAPI/WebSocket-сервер, а устройства игроков сохраняют локальную SQLite-реплику. Интерфейсы и права GM и Player различаются.
 
-### Возможности — v0.6.1
+### Возможности — v0.7.0
 
 **Персонажи**
 
@@ -245,6 +261,22 @@ D&D Hub — кроссплатформенный **local-first** менедже�
 - Обзор игроков и персонажей с HP, КД и инициативой
 - Лист персонажа в режиме просмотра для GM
 - Локальные инструменты сессии: активная сессия, заметки GM и история сессий
+
+**Session Workspace — v0.7.0**
+
+- Рабочее пространство Session для GM и Player
+- Отдельный журнал Session Notes с независимым редактированием записей
+- Session Events для игровых событий, а не технического audit log
+- XP Rewards, использующие существующую систему XP и историю XP-транзакций персонажа
+- Loot с workflow `available → claimed` до попадания предмета в Inventory персонажа
+- Атомарные серверные команды GM для выдачи XP и распределения Loot
+- Единая Session History из Session Events и существующего Combat Journal
+- События начала/завершения Battle попадают в историю Session без копирования боевого журнала
+- Начало, возобновление и завершение Session фиксируются как Session Events
+- Обзор Session показывает количество заметок, событий, добычи, боёв и повышений уровня
+- Из списка участников Session можно открыть подробный лист персонажа в режиме только просмотра
+- Старое поле `Session.notes` сохраняется как legacy и при миграции переносится в Session Note
+- GM может изменять Session Workspace; Player получает режим только для чтения
 
 **Интерфейс**
 
@@ -342,7 +374,7 @@ docs/
 | **v0.4** ✅ | GM Mode, просмотр персонажей и локальные Session Tools |
 | **v0.5.0** ✅ | Локальный GM-сервер + LAN-синхронизация в реальном времени, роли GM/Player и управление участниками |
 | **v0.6.1** ✅ | Battle Workspace: ходы, Actions, цели, Action Requests, GM review и Combat Journal |
-| v0.7 | Расширенные инструменты сессии/игрового процесса |
+| **v0.7.0** ✅ | Extended Session Workspace: Journal, Events, Rewards, Loot и единая History |
 | v1.0 | Завершённый базовый продукт |
 | v1.1+ | Мир кампании, AI-ассистент, AI GM |
 

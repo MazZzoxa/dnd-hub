@@ -33,7 +33,7 @@ class GmCharacterSheetScreen extends StatelessWidget {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16),
-            child: Center(child: Text('Просмотр ГМ', style: TextStyle(color: AppTheme.textSecondary))),
+            child: Center(child: Text('Только просмотр', style: TextStyle(color: AppTheme.textSecondary))),
           ),
         ],
       ),

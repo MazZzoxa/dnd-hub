@@ -14,6 +14,7 @@ import 'domain/providers/spell_provider.dart';
 import 'domain/providers/spell_slot_provider.dart';
 import 'domain/providers/session_provider.dart';
 import 'domain/providers/battle_provider.dart';
+import 'domain/providers/session_workspace_provider.dart';
 import 'network/connection_manager.dart';
 import 'network/services/sync_service.dart';
 import 'presentation/screens/character_list_screen.dart';
@@ -54,6 +55,7 @@ class DndHubApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => CampaignProvider(syncService: syncService, connectionManager: connectionManager)),
         ChangeNotifierProvider(create: (_) => XpProvider(syncService: syncService)),
         ChangeNotifierProvider(create: (_) => SessionProvider(syncService: syncService)),
+        ChangeNotifierProvider(create: (_) => SessionWorkspaceProvider(syncService: syncService)),
         ChangeNotifierProvider(create: (_) => BattleProvider(syncService: syncService)),
       ],
       child: MaterialApp(

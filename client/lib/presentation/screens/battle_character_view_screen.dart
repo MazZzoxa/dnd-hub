@@ -6,6 +6,7 @@ import '../../data/models/ability_model.dart';
 import '../../data/models/attack_model.dart';
 import '../../data/models/battle_action_request_model.dart';
 import '../../data/models/character_model.dart';
+import '../../data/models/campaign_member_model.dart';
 import '../../data/models/item_model.dart';
 import '../../data/models/spell_model.dart';
 import '../../data/repositories/ability_repository.dart';
@@ -13,6 +14,7 @@ import '../../data/repositories/attack_repository.dart';
 import '../../data/repositories/inventory_repository.dart';
 import '../../data/repositories/spell_repository.dart';
 import '../../domain/providers/battle_provider.dart';
+import '../../domain/providers/campaign_provider.dart';
 import '../../domain/providers/character_provider.dart';
 import '../widgets/battle_action_composer.dart';
 
@@ -75,6 +77,14 @@ class _BattleCharacterViewScreenState
   @override
   Widget build(BuildContext context) {
     final characters = context.watch<CharacterProvider>().characters;
+    final campaigns = context.watch<CampaignProvider>();
+    final linkedIds = campaigns.members
+        .where((member) => member.role == CampaignRole.player && member.linkedCharacterId != null)
+        .map((member) => member.linkedCharacterId!)
+        .toSet();
+    final campaignCharacters = characters
+        .where((character) => character.id != null && linkedIds.contains(character.id))
+        .toList(growable: false);
     final battle = context.watch<BattleProvider>();
 
     return DefaultTabController(
@@ -94,7 +104,7 @@ class _BattleCharacterViewScreenState
             _overview(),
             _actions(
               battle: battle,
-              availableCharacters: characters,
+              availableCharacters: campaignCharacters,
             ),
           ],
         ),

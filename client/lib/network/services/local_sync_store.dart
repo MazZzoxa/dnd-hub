@@ -28,6 +28,10 @@ class LocalSyncStore {
     'note',
     'spell_slot',
     'xp_transaction',
+    'session_note',
+    'session_event',
+    'session_reward',
+    'session_loot',
   };
 
   String _requireSyncId(Map<String, dynamic> data) {
@@ -165,6 +169,19 @@ class LocalSyncStore {
         if (campaignId == null) throw StateError('Session has no campaign_id.');
         data['campaign_sync_id'] = await _campaignSyncId(campaignId);
         break;
+      case 'session_note':
+      case 'session_event':
+      case 'session_reward':
+      case 'session_loot':
+        final sessionId = (data.remove('session_id') as num?)?.toInt();
+        if (sessionId == null) throw StateError('$entity has no session_id.');
+        data['session_sync_id'] = await _sessionSyncId(sessionId);
+        if (entity == 'session_reward') {
+          final characterSyncId = data['character_sync_id']?.toString().trim() ?? '';
+          if (characterSyncId.isEmpty) throw StateError('session_reward has no character_sync_id.');
+          data['character_sync_id'] = characterSyncId;
+        }
+        break;
       case 'battle':
         final campaignId = (data.remove('campaign_id') as num?)?.toInt();
         if (campaignId == null) throw StateError('У боя отсутствует идентификатор кампании.');
@@ -217,6 +234,33 @@ class LocalSyncStore {
       case 'session':
       case 'battle':
         return data['campaign_sync_id']?.toString() == campaignSyncId;
+      case 'session_note':
+      case 'session_event':
+      case 'session_reward':
+      case 'session_loot':
+        final sessionSyncId = data['session_sync_id']?.toString() ?? '';
+        if (sessionSyncId.isEmpty) return false;
+        final db = await _database.database;
+        final rows = await db.rawQuery(
+          'SELECT s.sync_id FROM campaign_sessions s JOIN campaigns c ON c.id = s.campaign_id WHERE s.sync_id = ? AND c.sync_id = ? LIMIT 1',
+          [sessionSyncId, campaignSyncId],
+        );
+        if (rows.isEmpty) return false;
+        if (entity != 'session_reward') return true;
+        final characterSyncId = data['character_sync_id']?.toString() ?? '';
+        if (characterSyncId.isEmpty) return false;
+        final characterRows = await db.rawQuery(
+          '''
+          SELECT m.id
+          FROM campaign_members m
+          JOIN campaigns c ON c.id = m.campaign_id
+          JOIN characters ch ON ch.id = m.linked_character_id
+          WHERE c.sync_id = ? AND ch.sync_id = ?
+          LIMIT 1
+          ''',
+          [campaignSyncId, characterSyncId],
+        );
+        return characterRows.isNotEmpty;
       case 'battle_turn':
       case 'battle_action_request':
       case 'battle_log_entry':
@@ -309,16 +353,45 @@ class LocalSyncStore {
       result.add({'entity': 'session', 'data': data});
     }
 
+    final sessionSyncById = <int, String>{
+      for (final row in sessionRows)
+        if (row['id'] is int) row['id'] as int: row['sync_id']?.toString() ?? '',
+    };
+    final sessionSyncIds = <String>{
+      for (final row in sessionRows)
+        if ((row['sync_id']?.toString() ?? '').isNotEmpty) row['sync_id'].toString(),
+    };
+    if (sessionSyncIds.isNotEmpty) {
+      final sessionPlaceholders = List.filled(sessionSyncIds.length, '?').join(',');
+      for (final spec in [
+        ('session_notes', 'session_note'),
+        ('session_events', 'session_event'),
+        ('session_rewards', 'session_reward'),
+        ('session_loot', 'session_loot'),
+      ]) {
+        final rows = await db.query(
+          spec.$1,
+          where: 'session_id IN (SELECT id FROM campaign_sessions WHERE sync_id IN ($sessionPlaceholders))',
+          whereArgs: sessionSyncIds.toList(),
+          orderBy: 'created_at ASC, id ASC',
+        );
+        for (final row in rows) {
+          final data = Map<String, dynamic>.from(row)..remove('id');
+          data.remove('session_id');
+          data['session_sync_id'] = row['session_id'] == null
+              ? ''
+              : sessionSyncById[row['session_id'] as int?] ?? '';
+          result.add({'entity': spec.$2, 'data': data});
+        }
+      }
+    }
+
     final battleRows = await db.query(
       'battles',
       where: 'campaign_id = ?',
       whereArgs: [campaignId],
       orderBy: 'id',
     );
-    final sessionSyncById = <int, String>{
-      for (final row in sessionRows)
-        if (row['id'] is int) row['id'] as int: row['sync_id']?.toString() ?? '',
-    };
     final battleSyncIds = <String>{};
     for (final row in battleRows) {
       final data = Map<String, dynamic>.from(row)..remove('id');
@@ -440,11 +513,15 @@ class LocalSyncStore {
         'character' => 1,
         'campaign_member' => 2,
         'session' => 2,
-        'battle' => 3,
-        'battle_turn' => 4,
-        'battle_action_request' => 5,
-        'battle_log_entry' => 6,
-        _ => 7,
+        'session_note' => 3,
+        'session_event' => 4,
+        'session_reward' => 5,
+        'session_loot' => 6,
+        'battle' => 7,
+        'battle_turn' => 8,
+        'battle_action_request' => 9,
+        'battle_log_entry' => 10,
+        _ => 11,
       };
     }
     entities.sort((a, b) => priority(a).compareTo(priority(b)));
@@ -486,6 +563,30 @@ class LocalSyncStore {
         where: 'campaign_id = ? AND sync_id NOT IN (${List.filled(sessionSyncIds.isEmpty ? 1 : sessionSyncIds.length, '?').join(',')})',
         whereArgs: [campaignId, ...(sessionSyncIds.isEmpty ? ['__none__'] : sessionSyncIds.toList())],
       );
+
+      final scopedSessionIds = [
+        for (final row in await txn.query('campaign_sessions', columns: const ['id'], where: 'campaign_id = ?', whereArgs: [campaignId]))
+          row['id'] as int,
+      ];
+      for (final spec in [
+        ('session_notes', 'session_note'),
+        ('session_events', 'session_event'),
+        ('session_rewards', 'session_reward'),
+        ('session_loot', 'session_loot'),
+      ]) {
+        if (scopedSessionIds.isEmpty) continue;
+        final sessionPlaceholders = List.filled(scopedSessionIds.length, '?').join(',');
+        final syncIds = present[spec.$2] ?? const <String>{};
+        final syncPlaceholders = List.filled(syncIds.isEmpty ? 1 : syncIds.length, '?').join(',');
+        await txn.delete(
+          spec.$1,
+          where: 'session_id IN ($sessionPlaceholders) AND sync_id NOT IN ($syncPlaceholders)',
+          whereArgs: [
+            ...scopedSessionIds,
+            ...(syncIds.isEmpty ? ['__none__'] : syncIds.toList()),
+          ],
+        );
+      }
 
       final existingBattleRows = await txn.query(
         'battles',
@@ -624,6 +725,23 @@ class LocalSyncStore {
         if (campaignId == null) return;
         data['campaign_id'] = campaignId;
         await _upsert(db, 'campaign_sessions', data);
+        return;
+      case 'session_note':
+      case 'session_event':
+      case 'session_reward':
+      case 'session_loot':
+        final sessionId = await _localIdBySync(
+          db,
+          'campaign_sessions',
+          data.remove('session_sync_id')?.toString(),
+        );
+        if (sessionId == null) return;
+        data['session_id'] = sessionId;
+        if (entity == 'session_event') {
+          final metadata = data['metadata'];
+          if (metadata is Map) data['metadata'] = jsonEncode(metadata);
+        }
+        await _upsert(db, _tableFor(entity), data);
         return;
       case 'battle':
         final campaignId = await _localIdBySync(
@@ -831,6 +949,10 @@ class LocalSyncStore {
         'campaign' => 'campaigns',
         'campaign_member' => 'campaign_members',
         'session' => 'campaign_sessions',
+        'session_note' => 'session_notes',
+        'session_event' => 'session_events',
+        'session_reward' => 'session_rewards',
+        'session_loot' => 'session_loot',
         'battle' => 'battles',
         'battle_turn' => 'battle_turns',
         'battle_action_request' => 'battle_action_requests',

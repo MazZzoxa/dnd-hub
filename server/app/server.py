@@ -29,6 +29,10 @@ SUPPORTED_ENTITIES = {
     "note",
     "spell_slot",
     "xp_transaction",
+    "session_note",
+    "session_event",
+    "session_reward",
+    "session_loot",
 }
 
 
@@ -247,6 +251,10 @@ class HubServer:
             return str(data.get("sync_id", "")) == self.campaign_id
         if entity in {"campaign_member", "session", "battle"}:
             return str(data.get("campaign_sync_id", "")) == self.campaign_id
+        if entity in {"session_note", "session_event", "session_reward", "session_loot"}:
+            session_sync_id = str(data.get("session_sync_id", "")).strip()
+            session = self._session_by_sync_id(session_sync_id)
+            return session is not None and session[1].get("campaign_sync_id") == self.campaign_id
         if entity in {"battle_turn", "battle_action_request", "battle_log_entry"}:
             battle_sync_id = str(data.get("battle_sync_id", "")).strip()
             battle = self.state.get(("battle", battle_sync_id))
@@ -273,16 +281,23 @@ class HubServer:
                 and data.get("campaign_sync_id") == sync_id
                 and data.get("linked_character_sync_id")
             }
+            session_sync_ids = {
+                str(data.get("sync_id"))
+                for (kind, _), data in self.state.items()
+                if kind == "session" and data.get("campaign_sync_id") == sync_id
+            }
+            battle_sync_ids = {
+                str(data.get("sync_id"))
+                for (kind, _), data in self.state.items()
+                if kind == "battle" and data.get("campaign_sync_id") == sync_id
+            }
             for key, data in list(self.state.items()):
                 kind, _ = key
                 if kind in {"campaign_member", "session", "battle"} and data.get("campaign_sync_id") == sync_id:
                     self.state.pop(key, None)
-                elif kind in {"battle_turn", "battle_action_request", "battle_log_entry"} and any(
-                    battle_data.get("sync_id") == data.get("battle_sync_id")
-                    and battle_data.get("campaign_sync_id") == sync_id
-                    for (battle_kind, _), battle_data in self.state.items()
-                    if battle_kind == "battle"
-                ):
+                elif kind in {"session_note", "session_event", "session_reward", "session_loot"} and data.get("session_sync_id") in session_sync_ids:
+                    self.state.pop(key, None)
+                elif kind in {"battle_turn", "battle_action_request", "battle_log_entry"} and data.get("battle_sync_id") in battle_sync_ids:
                     self.state.pop(key, None)
                 elif kind == "character" and str(data.get("sync_id")) in linked_characters:
                     self.state.pop(key, None)
@@ -290,13 +305,22 @@ class HubServer:
                     "item", "spell", "ability", "attack", "note", "spell_slot", "xp_transaction"
                 } and data.get("character_sync_id") in linked_characters:
                     self.state.pop(key, None)
+        elif entity == "session":
+            for key, data in list(self.state.items()):
+                kind, _ = key
+                if kind in {"session_note", "session_event", "session_reward", "session_loot"} and data.get("session_sync_id") == sync_id:
+                    self.state.pop(key, None)
+                elif kind == "battle" and data.get("session_sync_id") == sync_id:
+                    battle_sync_id = str(data.get("sync_id") or "")
+                    self.state.pop(key, None)
+                    for child_key, child_data in list(self.state.items()):
+                        child_kind, _ = child_key
+                        if child_kind in {"battle_turn", "battle_action_request", "battle_log_entry"} and child_data.get("battle_sync_id") == battle_sync_id:
+                            self.state.pop(child_key, None)
         elif entity == "character":
             for key, data in list(self.state.items()):
                 kind, _ = key
                 if kind == "campaign_member" and data.get("linked_character_sync_id") == sync_id:
-                    # Match the local SQLite FK semantics: deleting a character
-                    # removes its character data but leaves the campaign member
-                    # present, with no linked character.
                     data["linked_character_sync_id"] = None
                 elif kind in {
                     "item", "spell", "ability", "attack", "note", "spell_slot", "xp_transaction"
@@ -387,6 +411,67 @@ class HubServer:
             if key[1] == value and data.get("campaign_sync_id") == self.campaign_id:
                 return key, data
         return None
+
+    def _make_session_event_data(
+        self,
+        *,
+        session_sync_id: str,
+        event_type: str,
+        title: str,
+        description: str = "",
+        metadata: dict[str, Any] | None = None,
+        created_by: str = "server",
+    ) -> dict[str, Any]:
+        sync_id = secrets.token_hex(16)
+        data = {
+            "sync_id": sync_id,
+            "session_sync_id": session_sync_id,
+            "type": event_type,
+            "title": title,
+            "description": description,
+            "metadata": dict(metadata or {}),
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+            "created_by": created_by,
+        }
+        self.state[("session_event", sync_id)] = data
+        return data
+
+    async def _append_session_event(
+        self,
+        *,
+        session_sync_id: str,
+        event_type: str,
+        title: str,
+        description: str = "",
+        metadata: dict[str, Any] | None = None,
+        created_by: str = "server",
+    ) -> dict[str, Any]:
+        data = self._make_session_event_data(
+            session_sync_id=session_sync_id,
+            event_type=event_type,
+            title=title,
+            description=description,
+            metadata=metadata,
+            created_by=created_by,
+        )
+        return await self.broadcast_event(
+            "state.upsert",
+            {
+                "origin_client_id": "server",
+                "origin_display_name": created_by,
+                "entity": "session_event",
+                "data": dict(data),
+            },
+        )
+
+    @staticmethod
+    def _level_for_xp(xp: int) -> int:
+        thresholds = (0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000)
+        safe_xp = max(0, xp)
+        for index in range(len(thresholds) - 1, -1, -1):
+            if safe_xp >= thresholds[index]:
+                return index + 1
+        return 1
 
     def _character_for_campaign(self, character_sync_id: str) -> tuple[tuple[str, str], dict[str, Any]] | None:
         value = character_sync_id.strip()
@@ -1090,8 +1175,10 @@ class HubServer:
                 return
 
             now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+            battle_name = str(payload.get("battle_name", "")).strip()[:120] or "Бой"
             battle = {
                 "sync_id": secrets.token_hex(16),
+                "name": battle_name,
                 "campaign_sync_id": self.campaign_id,
                 "session_sync_id": session_sync_id,
                 "status": "active",
@@ -1101,7 +1188,18 @@ class HubServer:
                 "updated_at": now,
             }
             self.state[("battle", battle["sync_id"])] = battle
-            event = await self.send_battle_event("battle.started", battle)
+            session_event = self._make_session_event_data(
+                session_sync_id=session_sync_id,
+                event_type="battle_started",
+                title=f"⚔ {battle_name}",
+                metadata={"battle_sync_id": battle["sync_id"]},
+                created_by=client.display_name,
+            )
+            event = await self.send_battle_event(
+                "battle.started",
+                battle,
+                extra={"session_event": dict(session_event)},
+            )
             await client.websocket.send_json({
                 "protocol": PROTOCOL,
                 "type": "event",
@@ -1152,8 +1250,18 @@ class HubServer:
             battle["ended_at"] = now
             battle["updated_at"] = now
             self.state[("battle", battle_sync_id)] = battle
-
-            event = await self.send_battle_event("battle.ended", battle)
+            session_event = self._make_session_event_data(
+                session_sync_id=str(battle.get("session_sync_id") or ""),
+                event_type="battle_finished",
+                title=f"⚔ {str(battle.get('name') or 'Бой').strip() or 'Бой'} завершён",
+                metadata={"battle_sync_id": battle_sync_id},
+                created_by=client.display_name,
+            )
+            event = await self.send_battle_event(
+                "battle.ended",
+                battle,
+                extra={"session_event": dict(session_event)},
+            )
             await client.websocket.send_json({
                 "protocol": PROTOCOL,
                 "type": "event",
@@ -1279,6 +1387,233 @@ class HubServer:
                     "command_id": command_id,
                     "battle_sync_id": battle_key[1],
                     "character_sequence": state_event["sequence"],
+                },
+            })
+
+    async def _handle_session_reward_apply(self, client: Client, command_id: str, payload: dict[str, Any]) -> None:
+        if client.role != "gm":
+            await self.send_error(client, "Только ГМ может выдавать награды", command_id)
+            return
+        async with self._lock:
+            session_sync_id = str(payload.get("session_sync_id", "")).strip()
+            session = self._session_by_sync_id(session_sync_id)
+            if session is None:
+                await self.send_error(client, "Сессия не найдена", command_id)
+                return
+            if session[1].get("status") == "planned":
+                await self.send_error(client, "XP нельзя выдавать до начала сессии", command_id)
+                return
+            character_sync_id = str(payload.get("character_sync_id", "")).strip()
+            character_ref = self._character_for_campaign(character_sync_id)
+            if character_ref is None:
+                await self.send_error(client, "Персонаж не относится к кампании", command_id)
+                return
+            try:
+                amount = int(payload.get("amount"))
+            except (TypeError, ValueError):
+                await self.send_error(client, "Количество XP должно быть целым числом", command_id)
+                return
+            if amount <= 0:
+                await self.send_error(client, "Количество XP должно быть положительным", command_id)
+                return
+            if str(payload.get("type") or "xp") != "xp":
+                await self.send_error(client, "Поддерживается только награда XP", command_id)
+                return
+
+            key, character = character_ref
+            old_xp = max(0, int(character.get("xp", 0) or 0))
+            new_xp = min(1 << 30, old_xp + amount)
+            if new_xp == old_xp:
+                await self.send_error(client, "Опыт уже находится на максимальном значении", command_id)
+                return
+            old_level = max(1, int(character.get("level", 1) or 1))
+            new_level = self._level_for_xp(new_xp)
+            now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+            reason = str(payload.get("reason") or "").strip()
+
+            reward = {
+                "sync_id": secrets.token_hex(16),
+                "session_sync_id": session_sync_id,
+                "character_sync_id": character_sync_id,
+                "type": "xp",
+                "amount": amount,
+                "reason": reason,
+                "level_before": old_level,
+                "level_after": new_level,
+                "created_at": now,
+                "created_by": client.display_name,
+            }
+            xp_transaction = {
+                "sync_id": secrets.token_hex(16),
+                "character_sync_id": character_sync_id,
+                "delta": amount,
+                "xp_before": old_xp,
+                "xp_after": new_xp,
+                "level_before": old_level,
+                "level_after": new_level,
+                "reason": reason,
+                "created_at": now,
+            }
+            updated_character = dict(character)
+            updated_character["xp"] = new_xp
+            updated_character["level"] = new_level
+            self.state[key] = updated_character
+            self.state[("session_reward", reward["sync_id"])] = reward
+            self.state[("xp_transaction", xp_transaction["sync_id"])] = xp_transaction
+
+            character_event = await self.broadcast_event(
+                "state.upsert",
+                {
+                    "command_id": command_id,
+                    "origin_client_id": client.client_id,
+                    "origin_display_name": client.display_name,
+                    "entity": "character",
+                    "data": dict(updated_character),
+                },
+            )
+            reward_event = await self.broadcast_event(
+                "state.upsert",
+                {
+                    "command_id": command_id,
+                    "origin_client_id": client.client_id,
+                    "origin_display_name": client.display_name,
+                    "entity": "session_reward",
+                    "data": dict(reward),
+                },
+            )
+            xp_event = await self.broadcast_event(
+                "state.upsert",
+                {
+                    "command_id": command_id,
+                    "origin_client_id": client.client_id,
+                    "origin_display_name": client.display_name,
+                    "entity": "xp_transaction",
+                    "data": dict(xp_transaction),
+                },
+            )
+            session_event = await self._append_session_event(
+                session_sync_id=session_sync_id,
+                event_type="reward_granted",
+                title=f"+{amount} XP — {character.get('name') or 'Персонаж'}",
+                description=reason,
+                metadata={
+                    "reward_sync_id": reward["sync_id"],
+                    "character_sync_id": character_sync_id,
+                    "amount": amount,
+                    "level_before": old_level,
+                    "level_after": new_level,
+                },
+                created_by=client.display_name,
+            )
+            await client.websocket.send_json({
+                "protocol": PROTOCOL,
+                "type": "event",
+                "id": secrets.token_hex(16),
+                "client_id": "server",
+                "campaign_id": self.campaign_id,
+                "sequence": session_event["sequence"],
+                "payload": {
+                    "event": "ack",
+                    "command_id": command_id,
+                    "reward_sync_id": reward["sync_id"],
+                    "xp_transaction_sync_id": xp_transaction["sync_id"],
+                    "character_sequence": character_event["sequence"],
+                    "reward_sequence": reward_event["sequence"],
+                    "xp_transaction_sequence": xp_event["sequence"],
+                    "character": dict(updated_character),
+                    "reward": dict(reward),
+                    "xp_transaction": dict(xp_transaction),
+                },
+            })
+
+    async def _handle_session_loot_claim(self, client: Client, command_id: str, payload: dict[str, Any]) -> None:
+        if client.role != "gm":
+            await self.send_error(client, "Только ГМ может распределять добычу", command_id)
+            return
+        async with self._lock:
+            loot_sync_id = str(payload.get("loot_sync_id", "")).strip()
+            loot_ref = self.state.get(("session_loot", loot_sync_id))
+            if loot_ref is None:
+                await self.send_error(client, "Добыча не найдена", command_id)
+                return
+            loot = dict(loot_ref)
+            if loot.get("status", "available") != "available":
+                await self.send_error(client, "Эта добыча уже распределена", command_id)
+                return
+            session_sync_id = str(loot.get("session_sync_id", "")).strip()
+            if self._session_by_sync_id(session_sync_id) is None:
+                await self.send_error(client, "Сессия добычи не найдена", command_id)
+                return
+            character_sync_id = str(payload.get("character_sync_id", "")).strip()
+            character_ref = self._character_for_campaign(character_sync_id)
+            if character_ref is None:
+                await self.send_error(client, "Персонаж не относится к кампании", command_id)
+                return
+            quantity = max(1, int(loot.get("quantity", 1) or 1))
+            now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+            item_sync_id = secrets.token_hex(16)
+            item = {
+                "sync_id": item_sync_id,
+                "character_sync_id": character_sync_id,
+                "name": str(loot.get("name") or "Добыча"),
+                "quantity": quantity,
+                "category": "Other",
+                "description": str(loot.get("description") or ""),
+                "weight": 0.0,
+                "source_url": "",
+            }
+            loot["status"] = "claimed"
+            loot["claimed_by_character_sync_id"] = character_sync_id
+            loot["updated_at"] = now
+            self.state[("session_loot", loot_sync_id)] = loot
+            self.state[("item", item_sync_id)] = item
+            session_event = await self._append_session_event(
+                session_sync_id=session_sync_id,
+                event_type="loot_claimed",
+                title=f"{item['name']} → {character_ref[1].get('name') or 'Персонаж'}",
+                description=(f"Источник: {loot.get('source')}" if str(loot.get('source') or "").strip() else ""),
+                metadata={
+                    "loot_sync_id": loot_sync_id,
+                    "character_sync_id": character_sync_id,
+                    "item_sync_id": item_sync_id,
+                    "quantity": quantity,
+                },
+                created_by=client.display_name,
+            )
+            item_event = await self.broadcast_event(
+                "state.upsert",
+                {
+                    "command_id": command_id,
+                    "origin_client_id": client.client_id,
+                    "origin_display_name": client.display_name,
+                    "entity": "item",
+                    "data": dict(item),
+                },
+            )
+            loot_event = await self.broadcast_event(
+                "state.upsert",
+                {
+                    "command_id": command_id,
+                    "origin_client_id": client.client_id,
+                    "origin_display_name": client.display_name,
+                    "entity": "session_loot",
+                    "data": dict(loot),
+                },
+            )
+            await client.websocket.send_json({
+                "protocol": PROTOCOL,
+                "type": "event",
+                "id": secrets.token_hex(16),
+                "client_id": "server",
+                "campaign_id": self.campaign_id,
+                "sequence": session_event["sequence"],
+                "payload": {
+                    "event": "ack",
+                    "command_id": command_id,
+                    "loot_sync_id": loot_sync_id,
+                    "item_sync_id": item_sync_id,
+                    "item_sequence": item_event["sequence"],
+                    "loot_sequence": loot_event["sequence"],
                 },
             })
 
@@ -1433,6 +1768,14 @@ class HubServer:
             )
             return
 
+        if command == "session.reward.apply":
+            await self._handle_session_reward_apply(client, command_id, payload)
+            return
+
+        if command == "session.loot.claim":
+            await self._handle_session_loot_claim(client, command_id, payload)
+            return
+
         if command == "snapshot.publish":
             if client.role != "gm":
                 await self.send_error(client, "Только ГМ может опубликовать эталонный снимок состояния", command_id)
@@ -1475,6 +1818,26 @@ class HubServer:
                         raise ValueError("snapshot contains an unlinked character")
                     if entity_name in {"item", "spell", "ability", "attack", "note", "spell_slot", "xp_transaction"} and candidate.get("character_sync_id") not in linked_characters:
                         raise ValueError("snapshot contains an entity outside the hosted campaign")
+                    if entity_name in {"session_note", "session_event", "session_reward", "session_loot"}:
+                        session_sync_id = str(candidate.get("session_sync_id") or "")
+                        session = new_state.get(("session", session_sync_id))
+                        if session is None or session.get("campaign_sync_id") != self.campaign_id:
+                            raise ValueError("snapshot session workspace entity references an unknown session")
+                        if entity_name == "session_reward":
+                            if str(candidate.get("character_sync_id") or "") not in linked_characters:
+                                raise ValueError("snapshot reward references an unlinked character")
+                            if str(candidate.get("type") or "xp") != "xp":
+                                raise ValueError("snapshot contains an unsupported reward type")
+                            if int(candidate.get("amount", 0) or 0) <= 0:
+                                raise ValueError("snapshot contains an invalid reward amount")
+                        if entity_name == "session_loot":
+                            if str(candidate.get("status") or "available") not in {"available", "claimed"}:
+                                raise ValueError("snapshot contains an invalid loot status")
+                            if int(candidate.get("quantity", 0) or 0) <= 0:
+                                raise ValueError("snapshot contains an invalid loot quantity")
+                            claimed_by = str(candidate.get("claimed_by_character_sync_id") or "")
+                            if candidate.get("status") == "claimed" and claimed_by not in linked_characters:
+                                raise ValueError("snapshot loot references an unlinked claimant")
                     if entity_name == "battle":
                         if candidate.get("campaign_sync_id") != self.campaign_id:
                             raise ValueError("snapshot contains a battle outside the hosted campaign")
@@ -1749,7 +2112,7 @@ class HubServer:
 
 def build_app(hub: HubServer, *, port: int) -> FastAPI:
     hub.port = port
-    app = FastAPI(title="D&D Hub GM Server", version="0.6.1")
+    app = FastAPI(title="D&D Hub GM Server", version="0.7.0")
 
     @app.get("/health")
     async def health() -> dict[str, Any]:

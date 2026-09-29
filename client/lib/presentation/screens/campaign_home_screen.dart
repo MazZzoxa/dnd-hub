@@ -15,6 +15,7 @@ import '../../network/connection_manager.dart';
 import 'character_home_screen.dart';
 import 'gm_dashboard_screen.dart';
 import 'player_battle_screen.dart';
+import 'session_workspace_screen.dart';
 import 'network_screen.dart';
 import '../widgets/character_avatar.dart';
 
@@ -512,6 +513,8 @@ class _PlayerCampaignHomeScreenState extends State<PlayerCampaignHomeScreen> {
                                 leading: Icon(session.status == SessionStatus.active ? Icons.play_circle_outline : Icons.event_note_outlined),
                                 title: Text(session.title),
                                 subtitle: Text(session.status.label),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SessionWorkspaceScreen(session: session, gmMode: false))),
                               )),
                       ],
                     ),

@@ -1,6 +1,6 @@
 # D&D Hub GM Server
 
-Local FastAPI/WebSocket server for `v0.5.0` LAN sessions. It is started automatically by `Host Game` in the Flutter desktop client. The server keeps the authoritative campaign state and ordered event history in memory for the lifetime of the GM session.
+Local FastAPI/WebSocket server for D&D Hub LAN sessions (`v0.7.0`). It is started automatically by `Host Game` in the Flutter desktop client. The server keeps the authoritative campaign state and ordered event history in memory for the lifetime of the GM session.
 
 ## Manual run
 
@@ -20,7 +20,7 @@ Discovery:
 - UDP `42817`
 - request: `DNDHUB_DISCOVER_V1`
 
-## v0.5.0 behaviour
+## LAN server behaviour
 
 The LAN server provides:
 
@@ -32,6 +32,15 @@ The LAN server provides:
 - duplicate command protection by command id;
 - reconnect-safe replacement of a previous connection using the same `client_id`;
 - campaign/entity scope validation.
+
+The v0.7.0 server also provides authoritative Session Workspace state for:
+
+- `session_note`;
+- `session_event`;
+- `session_reward`;
+- `session_loot`.
+
+GM-only game commands apply XP rewards and claim Loot atomically, updating the existing Character XP/Inventory state together with the Session context and History event. Battle start/finish events are exposed as Session Events without duplicating the existing Combat Journal.
 
 The server is intentionally temporary. It does not replace the local SQLite database and it does not persist campaign state after the GM process exits.
 

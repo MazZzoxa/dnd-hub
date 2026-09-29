@@ -67,7 +67,11 @@ class _PlayerBattleScreenState extends State<PlayerBattleScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('⚔ Боевой режим · Игрок'),
+            Text(
+              battle.active?.name.trim().isNotEmpty == true
+                  ? '⚔ ${battle.active!.name}'
+                  : '⚔ Боевой режим · Игрок',
+            ),
             Text(
               session?.title ?? 'Сессия',
               style: const TextStyle(fontSize: 12),

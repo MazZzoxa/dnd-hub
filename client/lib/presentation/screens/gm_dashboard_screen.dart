@@ -12,6 +12,7 @@ import '../../domain/providers/character_provider.dart';
 import '../../domain/providers/session_provider.dart';
 import 'gm_character_sheet_screen.dart';
 import 'gm_battle_screen.dart';
+import 'session_workspace_screen.dart';
 
 class GmDashboardScreen extends StatefulWidget {
   const GmDashboardScreen({super.key});
@@ -309,110 +310,58 @@ class _GmMemberCard extends StatelessWidget {
   }
 }
 
-class _SessionView extends StatefulWidget {
+class _SessionView extends StatelessWidget {
   final int campaignId;
   const _SessionView({required this.campaignId});
 
   @override
-  State<_SessionView> createState() => _SessionViewState();
-}
-
-class _SessionViewState extends State<_SessionView> {
-  final _notes = TextEditingController();
-  final _title = TextEditingController();
-  int? _loadedSessionId;
-  bool _saving = false;
-
-  @override
-  void dispose() {
-    _notes.dispose();
-    _title.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final provider = context.watch<SessionProvider>();
-    final battleProvider = context.watch<BattleProvider>();
-    final active = provider.active;
-    if (active != null && _loadedSessionId != active.id) {
-      _loadedSessionId = active.id;
-      _title.text = active.title;
-      _notes.text = active.notes;
-    }
-
+    final sessions = context.watch<SessionProvider>();
+    final active = sessions.active;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Row(children: [const Expanded(child: Text('Инструменты сессии', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800))), if (active == null) FilledButton.icon(onPressed: () => _start(context), icon: const Icon(Icons.play_arrow), label: const Text('Начать сессию'))]),
+        Row(children: [
+          const Expanded(child: Text('Игровые сессии', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800))),
+          FilledButton.icon(onPressed: () => _start(context), icon: const Icon(Icons.play_arrow), label: const Text('Начать')),
+        ]),
         const SizedBox(height: 12),
-        if (active == null)
-          const Card(child: Padding(padding: EdgeInsets.all(20), child: Text('Активной сессии нет. Создайте её перед игрой.', style: TextStyle(color: AppTheme.textSecondary))))
-        else
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [const Icon(Icons.radio_button_checked, color: AppTheme.success), const SizedBox(width: 8), const Text('Активная сессия', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)), const Spacer(), Text(_format(active.startedAt), style: const TextStyle(color: AppTheme.textSecondary))]),
-                const SizedBox(height: 14),
-                TextField(controller: _title, decoration: const InputDecoration(labelText: 'Название сессии')),
-                const SizedBox(height: 12),
-                TextField(controller: _notes, minLines: 8, maxLines: 16, decoration: const InputDecoration(labelText: 'Заметки ГМ', alignLabelWithHint: true, hintText: 'НИП, события, решения игроков, награды и другие заметки по ходу игры…')),
-                const SizedBox(height: 14),
-                Row(children: [FilledButton.icon(onPressed: _saving ? null : _save, icon: const Icon(Icons.save_outlined), label: Text(_saving ? 'Сохранение…' : 'Сохранить')), const SizedBox(width: 10), OutlinedButton.icon(onPressed: () => _complete(context), icon: const Icon(Icons.stop_circle_outlined), label: const Text('Завершить'))]),
-              ]),
-            ),
-          ),
-        if (active != null) ...[
-          const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              leading: Icon(
-                battleProvider.isActive
-                    ? Icons.flash_on
-                    : Icons.sports_kabaddi_outlined,
-              ),
-              title: Text(
-                battleProvider.isActive ? '⚔ Боевой режим · активен' : 'Боевой режим',
-              ),
-              subtitle: Text(
-                battleProvider.isActive
-                    ? 'Боевое состояние группы синхронизируется между ГМ и игроками.'
-                    : 'Запустите отдельный бой внутри текущей сессии.',
-              ),
-              trailing: FilledButton(
-                onPressed: () => _openBattle(context, active),
-                child: Text(battleProvider.isActive ? 'Открыть' : 'Запустить'),
-              ),
-              onTap: () => _openBattle(context, active),
-            ),
-          ),
-        ],
-        const SizedBox(height: 14),
+        if (active != null)
+          Card(child: ListTile(
+            leading: const Icon(Icons.radio_button_checked, color: AppTheme.success),
+            title: Text(active.title),
+            subtitle: Text('Активна · начата ${_format(active.startedAt)}'),
+            trailing: FilledButton(onPressed: () => _open(context, active), child: const Text('Открыть')),
+            onTap: () => _open(context, active),
+          )),
+        if (active == null) const Card(child: Padding(padding: EdgeInsets.all(18), child: Text('Активной сессии нет.', style: TextStyle(color: AppTheme.textSecondary)))),
+        const SizedBox(height: 16),
         const Text('История сессий', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
-        ...provider.sessions.map((session) => Card(
-              margin: const EdgeInsets.only(bottom: 8),
-              child: ListTile(
-                leading: Icon(session.status == SessionStatus.active ? Icons.play_circle : Icons.history, color: session.status == SessionStatus.active ? AppTheme.success : AppTheme.textSecondary),
-                title: Text(session.title),
-                subtitle: Text('${session.status.label} · ${_format(session.startedAt ?? session.createdAt)}'),
-              ),
-            )),
+        if (sessions.sessions.isEmpty)
+          const Text('Сессий пока нет.', style: TextStyle(color: AppTheme.textSecondary))
+        else ...sessions.sessions.map((session) => Card(child: ListTile(
+          leading: Icon(session.status == SessionStatus.active ? Icons.play_circle_outline : Icons.event_note_outlined, color: session.status == SessionStatus.active ? AppTheme.success : null),
+          title: Text(session.title),
+          subtitle: Text('${session.status.label} · ${_format(session.startedAt ?? session.createdAt)}'),
+          trailing: PopupMenuButton<String>(
+            onSelected: (value) async {
+              if (value == 'open') _open(context, session);
+              if (value == 'resume') await _resume(context, session);
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'open', child: Text('Открыть')),
+              if (session.status == SessionStatus.completed) const PopupMenuItem(value: 'resume', child: Text('Возобновить')),
+            ],
+          ),
+          onTap: () => _open(context, session),
+        ))),
       ],
     );
   }
 
-  void _openBattle(BuildContext context, SessionModel session) {
-    if (session.id == null) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => GmBattleScreen(
-          campaignId: widget.campaignId,
-          sessionId: session.id!,
-        ),
-      ),
-    );
+  void _open(BuildContext context, SessionModel session) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => SessionWorkspaceScreen(session: session, gmMode: true)));
   }
 
   Future<void> _start(BuildContext context) async {
@@ -421,36 +370,20 @@ class _SessionViewState extends State<_SessionView> {
     controller.dispose();
     if (title == null || !context.mounted) return;
     try {
-      await context.read<SessionProvider>().startSession(campaignId: widget.campaignId, title: title);
-      final session = context.read<SessionProvider>().active;
-      if (session?.id != null) {
-        await context.read<BattleProvider>().loadForSession(
-              campaignId: widget.campaignId,
-              sessionId: session!.id!,
-            );
-      }
-      _loadedSessionId = null;
+      final session = await context.read<SessionProvider>().startSession(campaignId: campaignId, title: title);
+      if (context.mounted) _open(context, session);
     } catch (error) {
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
     }
   }
 
-  Future<void> _save() async {
-    setState(() => _saving = true);
+  Future<void> _resume(BuildContext context, SessionModel session) async {
     try {
-      await context.read<SessionProvider>().updateActive(title: _title.text, notes: _notes.text);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Сессия сохранена')));
-    } finally {
-      if (mounted) setState(() => _saving = false);
+      await context.read<SessionProvider>().resumeSession(session);
+      if (context.mounted) _open(context, context.read<SessionProvider>().active ?? session);
+    } catch (error) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
     }
-  }
-
-  Future<void> _complete(BuildContext context) async {
-    final confirmed = await showDialog<bool>(context: context, builder: (_) => AlertDialog(title: const Text('Завершить сессию?'), content: const Text('Текущие заметки сохранятся, а сессия перейдёт в историю.'), actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Завершить'))]));
-    if (confirmed != true || !context.mounted) return;
-    await context.read<SessionProvider>().updateActive(title: _title.text, notes: _notes.text);
-    await context.read<SessionProvider>().completeActive();
-    _loadedSessionId = null;
   }
 }
 

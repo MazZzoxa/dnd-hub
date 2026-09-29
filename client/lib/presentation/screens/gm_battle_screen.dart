@@ -63,7 +63,11 @@ class _GmBattleScreenState extends State<GmBattleScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('⚔ Боевой режим · ГМ'),
+            Text(
+              battle.active?.name.trim().isNotEmpty == true
+                  ? '⚔ ${battle.active!.name}'
+                  : '⚔ Боевой режим · ГМ',
+            ),
             Text(
               session?.title ?? 'Сессия',
               style: const TextStyle(fontSize: 12),
@@ -519,8 +523,37 @@ class _GmBattleScreenState extends State<GmBattleScreen> {
   }
 
   Future<void> _startBattle(SessionModel session) async {
+    final controller = TextEditingController(text: 'Бой');
+    final name = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Начать бой'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 120,
+          decoration: const InputDecoration(
+            labelText: 'Название боя',
+            hintText: 'Например, Бой у северных ворот',
+          ),
+          onSubmitted: (value) => Navigator.pop(dialogContext, value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Начать'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || !mounted) return;
     try {
-      await context.read<BattleProvider>().startBattle(session);
+      await context.read<BattleProvider>().startBattle(session, name: name);
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
     }

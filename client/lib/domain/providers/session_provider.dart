@@ -4,17 +4,21 @@ import 'package:flutter/foundation.dart';
 
 import '../../data/models/session_model.dart';
 import '../../data/repositories/session_repository.dart';
+import '../../data/repositories/session_workspace_repository.dart';
+import '../../data/models/session_event_model.dart';
 import '../../network/protocol/network_message.dart';
 import '../../network/services/sync_ids.dart';
 import '../../network/services/sync_service.dart';
 
 class SessionProvider extends ChangeNotifier {
   final SessionRepository _repository;
+  final SessionWorkspaceRepository _workspaceRepository;
   final SyncService? _syncService;
   StreamSubscription<NetworkMessage>? _syncSubscription;
 
-  SessionProvider({SessionRepository? repository, SyncService? syncService})
+  SessionProvider({SessionRepository? repository, SessionWorkspaceRepository? workspaceRepository, SyncService? syncService})
       : _repository = repository ?? SessionRepository(),
+        _workspaceRepository = workspaceRepository ?? SessionWorkspaceRepository(),
         _syncService = syncService {
     _syncSubscription = _syncService?.events.listen(_onSyncEvent);
   }
@@ -66,6 +70,17 @@ class SessionProvider extends ChangeNotifier {
     await load(campaignId);
     final created = _sessions.firstWhere((item) => item.id == id);
     await _syncService?.publishEntity('session', created.toMap());
+    final event = SessionEventModel(
+      syncId: SyncIds.newId(),
+      sessionId: created.id!,
+      type: 'session_started',
+      title: 'Сессия началась',
+      description: created.title,
+      createdAt: now,
+      createdBy: _syncService?.clientId ?? 'local',
+    );
+    final eventId = await _workspaceRepository.createEvent(event);
+    await _syncService?.publishEntity('session_event', event.copyWith(id: eventId).toMap());
     return created;
   }
 
@@ -98,6 +113,47 @@ class SessionProvider extends ChangeNotifier {
     _active = null;
     notifyListeners();
     await _syncService?.publishEntity('session', updated.toMap());
+    final event = SessionEventModel(
+      syncId: SyncIds.newId(),
+      sessionId: updated.id!,
+      type: 'session_ended',
+      title: 'Сессия завершена',
+      description: updated.title,
+      createdAt: now,
+      createdBy: _syncService?.clientId ?? 'local',
+    );
+    final eventId = await _workspaceRepository.createEvent(event);
+    await _syncService?.publishEntity('session_event', event.copyWith(id: eventId).toMap());
+  }
+
+  Future<void> resumeSession(SessionModel session) async {
+    if (session.id == null) return;
+    final active = await _repository.getActive(session.campaignId);
+    if (active != null && active.id != session.id) {
+      throw StateError('В этой кампании уже есть активная сессия.');
+    }
+    final now = DateTime.now();
+    final updated = session.copyWith(
+      status: SessionStatus.active,
+      clearEndedAt: true,
+      updatedAt: now,
+    );
+    await _repository.update(updated);
+    _replace(updated);
+    _active = updated;
+    notifyListeners();
+    await _syncService?.publishEntity('session', updated.toMap());
+    final event = SessionEventModel(
+      syncId: SyncIds.newId(),
+      sessionId: updated.id!,
+      type: 'session_resumed',
+      title: 'Сессия возобновлена',
+      description: updated.title,
+      createdAt: now,
+      createdBy: _syncService?.clientId ?? 'local',
+    );
+    final eventId = await _workspaceRepository.createEvent(event);
+    await _syncService?.publishEntity('session_event', event.copyWith(id: eventId).toMap());
   }
 
   Future<void> deleteSession(SessionModel session) async {
