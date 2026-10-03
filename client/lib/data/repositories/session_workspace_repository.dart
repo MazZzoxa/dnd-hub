@@ -82,23 +82,6 @@ class SessionWorkspaceRepository {
     return rows.map(SessionRewardModel.fromMap).toList();
   }
 
-  Future<int> getLevelUpCount(int sessionId) async {
-    final db = await _db.database;
-    final rows = await db.query(
-      'session_rewards',
-      columns: const ['level_before', 'level_after'],
-      where: "session_id = ? AND type = 'xp'",
-      whereArgs: [sessionId],
-    );
-    var count = 0;
-    for (final row in rows) {
-      final before = (row['level_before'] as num?)?.toInt() ?? 1;
-      final after = (row['level_after'] as num?)?.toInt() ?? before;
-      if (after > before) count += after - before;
-    }
-    return count;
-  }
-
   Future<int> createReward(SessionRewardModel reward) async {
     final db = await _db.database;
     final map = reward.toMap()..remove('id');
@@ -136,8 +119,30 @@ class SessionWorkspaceRepository {
 
   Future<List<SessionHistoryEntryModel>> getHistory(int sessionId) async {
     final db = await _db.database;
+    const combatEventTypes = {
+      'battle_started',
+      'battle_finished',
+      'turn_started',
+      'turn_ended',
+      'action_submitted',
+      'action_approved',
+      'action_modified',
+      'action_rejected',
+      'attack_roll',
+      'damage_roll',
+      'healing_roll',
+      'damage_applied',
+      'healing_applied',
+      'temporary_hp_applied',
+      'condition_applied',
+      'condition_removed',
+      'downed',
+      'death',
+      'revived',
+      'life_state_changed',
+    };
     final events = (await _getAllEvents(sessionId))
-        .where((event) => event.type != 'battle_started' && event.type != 'battle_finished')
+        .where((event) => !combatEventTypes.contains(event.type))
         .toList();
 
     final battleRows = await db.query(
@@ -267,6 +272,97 @@ class SessionWorkspaceRepository {
         },
         createdAt: now,
         createdBy: createdBy,
+      );
+      await txn.insert('session_events', event.toMap()..remove('id'));
+      final inserted = await txn.query('session_rewards', where: 'sync_id = ?', whereArgs: [reward.syncId], limit: 1);
+      return SessionRewardModel.fromMap(inserted.single);
+    });
+  }
+
+  Future<SessionRewardModel> grantCurrencyLocally({
+    required int sessionId,
+    required String characterSyncId,
+    required String currency,
+    required int amount,
+    required String reason,
+    required String createdBy,
+  }) async {
+    const fields = {'copper', 'silver', 'electrum', 'gold', 'platinum'};
+    final normalizedCurrency = currency.trim().toLowerCase();
+    if (!fields.contains(normalizedCurrency)) throw StateError('Неизвестный тип валюты.');
+    if (amount <= 0) throw ArgumentError.value(amount, 'amount', 'Количество должно быть положительным.');
+    final db = await _db.database;
+    return db.transaction((txn) async {
+      final sessionRows = await txn.query('campaign_sessions', columns: const ['id', 'status'], where: 'id = ?', whereArgs: [sessionId], limit: 1);
+      if (sessionRows.isEmpty) throw StateError('Сессия не найдена.');
+      if (sessionRows.first['status'] == 'planned') throw StateError('Награду нельзя выдавать до начала сессии.');
+      final characterRows = await txn.query('characters', columns: ['id', 'sync_id', 'name', 'level', normalizedCurrency], where: 'sync_id = ?', whereArgs: [characterSyncId], limit: 1);
+      if (characterRows.isEmpty) throw StateError('Персонаж не найден.');
+      final linkedRows = await txn.rawQuery('''
+        SELECT c.id FROM characters c
+        JOIN campaign_members m ON m.linked_character_id = c.id
+        JOIN campaign_sessions s ON s.campaign_id = m.campaign_id
+        WHERE s.id = ? AND c.sync_id = ? LIMIT 1
+      ''', [sessionId, characterSyncId]);
+      if (linkedRows.isEmpty) throw StateError('Персонаж не относится к кампании этой сессии.');
+      final oldAmount = (characterRows.first[normalizedCurrency] as num?)?.toInt() ?? 0;
+      final newAmount = (oldAmount + amount).clamp(0, 1 << 30).toInt();
+      final now = DateTime.now();
+      final reward = SessionRewardModel(
+        syncId: SyncIds.newId(), sessionId: sessionId, characterSyncId: characterSyncId,
+        type: 'currency', currency: normalizedCurrency, amount: amount, reason: reason.trim(),
+        levelBefore: (characterRows.first['level'] as int?) ?? 1,
+        levelAfter: (characterRows.first['level'] as int?) ?? 1, createdAt: now, createdBy: createdBy,
+      );
+      await txn.update('characters', {normalizedCurrency: newAmount}, where: 'id = ?', whereArgs: [characterRows.first['id']]);
+      await txn.insert('session_rewards', reward.toMap()..remove('id'));
+      final event = SessionEventModel(
+        syncId: SyncIds.newId(), sessionId: sessionId, type: 'currency_reward',
+        title: '+$amount ${normalizedCurrency.toUpperCase()} — ${characterRows.first['name']?.toString() ?? 'Персонаж'}',
+        description: reason.trim(),
+        metadata: {'reward_sync_id': reward.syncId, 'character_sync_id': characterSyncId, 'currency': normalizedCurrency, 'amount': amount},
+        createdAt: now, createdBy: createdBy,
+      );
+      await txn.insert('session_events', event.toMap()..remove('id'));
+      final inserted = await txn.query('session_rewards', where: 'sync_id = ?', whereArgs: [reward.syncId], limit: 1);
+      return SessionRewardModel.fromMap(inserted.single);
+    });
+  }
+
+  Future<SessionRewardModel> grantInspirationLocally({
+    required int sessionId,
+    required String characterSyncId,
+    required String reason,
+    required String createdBy,
+  }) async {
+    final db = await _db.database;
+    return db.transaction((txn) async {
+      final sessionRows = await txn.query('campaign_sessions', columns: const ['id', 'status'], where: 'id = ?', whereArgs: [sessionId], limit: 1);
+      if (sessionRows.isEmpty) throw StateError('Сессия не найдена.');
+      if (sessionRows.first['status'] == 'planned') throw StateError('Награду нельзя выдавать до начала сессии.');
+      final characterRows = await txn.query('characters', columns: const ['id', 'sync_id', 'name', 'inspiration'], where: 'sync_id = ?', whereArgs: [characterSyncId], limit: 1);
+      if (characterRows.isEmpty) throw StateError('Персонаж не найден.');
+      final linkedRows = await txn.rawQuery('''
+        SELECT c.id FROM characters c
+        JOIN campaign_members m ON m.linked_character_id = c.id
+        JOIN campaign_sessions s ON s.campaign_id = m.campaign_id
+        WHERE s.id = ? AND c.sync_id = ? LIMIT 1
+      ''', [sessionId, characterSyncId]);
+      if (linkedRows.isEmpty) throw StateError('Персонаж не относится к кампании этой сессии.');
+      if ((characterRows.first['inspiration'] as num?)?.toInt() == 1) throw StateError('У персонажа уже есть вдохновение.');
+      final now = DateTime.now();
+      final reward = SessionRewardModel(
+        syncId: SyncIds.newId(), sessionId: sessionId, characterSyncId: characterSyncId,
+        type: 'inspiration', amount: 1, reason: reason.trim(), createdAt: now, createdBy: createdBy,
+      );
+      await txn.update('characters', {'inspiration': 1}, where: 'id = ?', whereArgs: [characterRows.first['id']]);
+      await txn.insert('session_rewards', reward.toMap()..remove('id'));
+      final event = SessionEventModel(
+        syncId: SyncIds.newId(), sessionId: sessionId, type: 'inspiration_granted',
+        title: 'Вдохновение — ${characterRows.first['name']?.toString() ?? 'Персонаж'}',
+        description: reason.trim(),
+        metadata: {'reward_sync_id': reward.syncId, 'character_sync_id': characterSyncId},
+        createdAt: now, createdBy: createdBy,
       );
       await txn.insert('session_events', event.toMap()..remove('id'));
       final inserted = await txn.query('session_rewards', where: 'sync_id = ?', whereArgs: [reward.syncId], limit: 1);

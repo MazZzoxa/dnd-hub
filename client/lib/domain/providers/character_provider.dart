@@ -30,15 +30,19 @@ class CharacterProvider extends ChangeNotifier {
   List<CharacterModel> _characters = [];
   CharacterModel? _selected;
   bool _loading = false;
+  int _stateRevision = 0;
 
   List<CharacterModel> get characters => List.unmodifiable(_characters);
   CharacterModel? get selected => _selected;
   bool get loading => _loading;
 
   Future<void> loadCharacters() async {
+    final revision = ++_stateRevision;
     _loading = true;
     notifyListeners();
-    _characters = await _repository.getAll();
+    final characters = await _repository.getAll();
+    if (revision != _stateRevision) return;
+    _characters = characters;
     _loading = false;
     notifyListeners();
   }
@@ -54,6 +58,7 @@ class CharacterProvider extends ChangeNotifier {
   }
 
   Future<CharacterModel> createCharacter(CharacterModel character) async {
+    ++_stateRevision;
     final normalized = character.copyWith(
       level: XpLevelTable.levelForXp(character.xp),
       syncId: character.syncId.isEmpty ? SyncIds.newId() : character.syncId,
@@ -68,6 +73,7 @@ class CharacterProvider extends ChangeNotifier {
   }
 
   Future<void> updateCharacter(CharacterModel character) async {
+    ++_stateRevision;
     final normalized = character.copyWith(
       level: XpLevelTable.levelForXp(character.xp),
       syncId: character.syncId.isEmpty ? SyncIds.newId() : character.syncId,
@@ -84,6 +90,7 @@ class CharacterProvider extends ChangeNotifier {
   }
 
   Future<void> deleteCharacter(int id) async {
+    ++_stateRevision;
     final index = _characters.indexWhere((c) => c.id == id);
     final removed = index == -1 ? null : _characters[index];
     await _repository.delete(id);
@@ -103,39 +110,75 @@ class CharacterProvider extends ChangeNotifier {
   }
 
   Future<void> _onNetworkEvent(NetworkMessage event) async {
-    final eventName = event.payload['event']?.toString();
-    final entity = event.payload['entity']?.toString();
+    final eventName = event.payload['event']?.toString() ?? '';
+    final entity = event.payload['entity']?.toString() ?? '';
+
     if (eventName == 'state.snapshot') {
       final selectedSyncId = _selected?.syncId;
       await loadCharacters();
       if (selectedSyncId != null && selectedSyncId.isNotEmpty) {
-        for (final character in _characters) {
-          if (character.syncId == selectedSyncId) {
-            _selected = character;
-            break;
-          }
-        }
+        _selected = _findBySyncId(selectedSyncId);
       }
       notifyListeners();
       return;
     }
+
     if (entity != 'character') return;
-    final selectedSyncId = _selected?.syncId;
-    await loadCharacters();
+
+    final syncId = eventName == 'state.delete'
+        ? event.payload['sync_id']?.toString() ?? ''
+        : (event.payload['data'] is Map
+            ? (event.payload['data']['sync_id']?.toString() ?? '')
+            : '');
+    if (syncId.isEmpty) return;
+
     if (eventName == 'state.delete') {
-      if (selectedSyncId != null &&
-          selectedSyncId == event.payload['sync_id']?.toString()) {
-        _selected = null;
-      }
-    } else if (selectedSyncId != null && selectedSyncId.isNotEmpty) {
-      for (final character in _characters) {
-        if (character.syncId == selectedSyncId) {
-          _selected = character;
-          break;
-        }
-      }
+      ++_stateRevision;
+      _characters.removeWhere((character) => character.syncId == syncId);
+      if (_selected?.syncId == syncId) _selected = null;
+      _loading = false;
+      notifyListeners();
+      return;
     }
+
+    // SyncService persists the authoritative event into SQLite before it is
+    // emitted on the public event stream. Invalidate any older full-list read
+    // so a slow query cannot overwrite this newer authoritative state. Then
+    // read only the affected character back from the repository instead of
+    // reloading the whole character list.
+    // This avoids overlapping full-list refreshes when several state events
+    // arrive close together (for example during a battle action or XP reward).
+    ++_stateRevision;
+    final updated = await _repository.findBySyncId(syncId);
+    if (updated == null) {
+      _loading = false;
+      notifyListeners();
+      return;
+    }
+
+    final index = _characters.indexWhere((character) => character.syncId == syncId);
+    if (index == -1) {
+      _characters = [..._characters, updated]
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    } else {
+      final next = List<CharacterModel>.from(_characters);
+      next[index] = updated;
+      next.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      _characters = next;
+    }
+
+    if (_selected?.syncId == syncId) {
+      _selected = updated;
+    }
+    _loading = false;
     notifyListeners();
+  }
+
+  CharacterModel? _findBySyncId(String syncId) {
+    for (final character in _characters) {
+      if (character.syncId == syncId) return character;
+    }
+    return null;
   }
 
   @override
@@ -164,6 +207,7 @@ class CharacterProvider extends ChangeNotifier {
     if (c == null || delta == 0) return;
     final int newXp = (c.xp + delta).clamp(0, 1 << 30).toInt();
     if (newXp == c.xp) return;
+    ++_stateRevision;
     final transaction = await _xpService.change(c, delta, reason: reason);
     final updated = c.copyWith(xp: transaction.xpAfter, level: transaction.levelAfter);
     _replaceInList(updated);

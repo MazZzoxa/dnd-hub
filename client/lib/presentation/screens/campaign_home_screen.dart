@@ -306,6 +306,42 @@ class _PlayerCampaignHomeScreenState extends State<PlayerCampaignHomeScreen> {
     }
   }
 
+  Future<void> _unlinkCharacter(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Отвязать персонажа?'),
+        content: const Text(
+          'Персонаж будет отвязан от вашего участника кампании. Сам персонаж и его данные на этом устройстве не будут удалены.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Отвязать'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+
+    try {
+      await context.read<CampaignProvider>().unlinkOwnCharacter();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Персонаж отвязан от кампании.')),
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$error')),
+      );
+    }
+  }
+
   Future<void> _chooseCharacter(BuildContext context) async {
     final campaigns = context.read<CampaignProvider>();
     final member = campaigns.currentMembership;
@@ -483,7 +519,7 @@ class _PlayerCampaignHomeScreenState extends State<PlayerCampaignHomeScreen> {
                               ),
                             ],
                           )
-                        else
+                        else ...[
                           ListTile(
                             contentPadding: EdgeInsets.zero,
                             leading: CharacterAvatar(character: ownCharacter),
@@ -492,6 +528,15 @@ class _PlayerCampaignHomeScreenState extends State<PlayerCampaignHomeScreen> {
                             trailing: const Icon(Icons.chevron_right),
                             onTap: () => _openCharacter(context, ownCharacter!),
                           ),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: () => _unlinkCharacter(context),
+                              icon: const Icon(Icons.link_off_outlined),
+                              label: const Text('Отвязать персонажа от кампании'),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

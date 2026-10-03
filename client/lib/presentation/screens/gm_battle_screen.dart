@@ -11,6 +11,8 @@ import '../../domain/providers/battle_provider.dart';
 import '../../domain/providers/campaign_provider.dart';
 import '../../domain/providers/character_provider.dart';
 import '../../domain/providers/session_provider.dart';
+import '../../domain/providers/gameplay_state_provider.dart';
+import '../../data/models/character_condition_model.dart';
 import '../widgets/battle_action_sheet.dart';
 import '../widgets/battle_character_card.dart';
 import '../widgets/battle_toolbar.dart';
@@ -35,6 +37,7 @@ class GmBattleScreen extends StatefulWidget {
 class _GmBattleScreenState extends State<GmBattleScreen> {
   final DiceService _dice = DiceService();
   bool _loadingAction = false;
+  final Set<String> _loadedGameplayCharacters = {};
 
   @override
   void initState() {
@@ -151,6 +154,15 @@ class _GmBattleScreenState extends State<GmBattleScreen> {
         if (character.syncId == syncId) return character;
       }
       return null;
+    }
+
+    final gameplay = context.watch<GameplayStateProvider>();
+    for (final character in linkedCharacters) {
+      if (character.id != null && _loadedGameplayCharacters.add(character.syncId)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) gameplay.loadCharacter(character.id!, character.syncId);
+        });
+      }
     }
 
     final currentTurnCharacter = battle.currentTurn == null
@@ -303,6 +315,7 @@ class _GmBattleScreenState extends State<GmBattleScreen> {
     CharacterModel character,
     bool isCurrentTurn,
   ) {
+    final gameplay = context.read<GameplayStateProvider>();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -316,8 +329,15 @@ class _GmBattleScreenState extends State<GmBattleScreen> {
               ),
             ),
           ),
-          child: BattleCharacterCard.fromCharacter(
-            character: character,
+          child: BattleCharacterCard(
+            name: character.name,
+            hp: character.hp,
+            maxHp: character.maxHp,
+            temporaryHp: character.temporaryHp,
+            armorClass: character.armorClass,
+            initiative: character.initiative,
+            lifeState: character.lifeState,
+            conditions: gameplay.conditionsFor(character.syncId),
             canEdit: true,
             onDamage: () => _action(
               battle,
@@ -335,6 +355,30 @@ class _GmBattleScreenState extends State<GmBattleScreen> {
               BattleActionKind.temporaryHp,
             ),
           ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            if (character.lifeState != CharacterLifeState.normal)
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _manageLifeState(character),
+                  icon: const Icon(Icons.favorite_border),
+                  label: Text(character.lifeState.label),
+                ),
+              ),
+            if (character.lifeState != CharacterLifeState.normal)
+              const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => _manageConditions(character),
+                icon: const Icon(Icons.local_fire_department_outlined),
+                label: Text(
+                  'Состояния (${gameplay.conditionsFor(character.syncId).length})',
+                ),
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 8),
         FilledButton.tonalIcon(
@@ -520,6 +564,78 @@ class _GmBattleScreenState extends State<GmBattleScreen> {
     } finally {
       if (mounted) setState(() => _loadingAction = false);
     }
+  }
+
+  Future<void> _manageLifeState(CharacterModel character) async {
+    final current = character.lifeState;
+    final value = await showDialog<CharacterLifeState>(
+      context: context,
+      builder: (_) => SimpleDialog(
+        title: Text('${character.name} · состояние жизни'),
+        children: [
+          for (final state in CharacterLifeState.values)
+            SimpleDialogOption(onPressed: () => Navigator.pop(context, state), child: Text(state.label)),
+        ],
+      ),
+    );
+    if (value == null || value == current || !mounted) return;
+    try {
+      await context.read<GameplayStateProvider>().setLifeState(
+        character: character,
+        lifeState: value.dbValue,
+        battleSyncId: context.read<BattleProvider>().activeBattleSyncId,
+      );
+      await context.read<CharacterProvider>().loadCharacters();
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _manageConditions(CharacterModel character) async {
+    final gameplay = context.read<GameplayStateProvider>();
+    final conditions = gameplay.conditionsFor(character.syncId);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(character.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 12),
+              if (conditions.isEmpty) const Text('Активных состояний нет.', style: TextStyle(color: AppTheme.textSecondary))
+              else ...conditions.map((condition) => ListTile(leading: const Icon(Icons.local_fire_department_outlined), title: Text(condition.name), subtitle: Text(condition.remainingRounds > 0 ? 'Осталось: ${condition.remainingRounds} раунд(а)' : 'Без срока'), trailing: IconButton(icon: const Icon(Icons.close), tooltip: 'Снять', onPressed: () async {
+                try { await gameplay.removeCondition(
+                    condition: condition,
+                    battleSyncId: context.read<BattleProvider>().activeBattleSyncId,
+                  ); if (sheetContext.mounted) Navigator.pop(sheetContext); } catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error'))); }
+              }))),
+              const SizedBox(height: 8),
+              FilledButton.icon(onPressed: () async {
+                Navigator.pop(sheetContext);
+                final result = await _conditionDialog(character);
+                if (result == null || !mounted) return;
+                try {
+                  await gameplay.applyCondition(character: character, name: result.$1, description: result.$2, durationRounds: result.$3, remainingRounds: result.$3, battleSyncId: context.read<BattleProvider>().activeBattleSyncId);
+                } catch (error) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error'))); }
+              }, icon: const Icon(Icons.add), label: const Text('Наложить состояние')),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<(String, String, int)?> _conditionDialog(CharacterModel character) async {
+    final name = TextEditingController();
+    final description = TextEditingController();
+    final duration = TextEditingController(text: '0');
+    final result = await showDialog<(String, String, int)>(context: context, builder: (_) => AlertDialog(title: const Text('Новое состояние'), content: SizedBox(width: 520, child: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: name, autofocus: true, decoration: const InputDecoration(labelText: 'Название')), const SizedBox(height: 10), TextField(controller: description, minLines: 2, maxLines: 4, decoration: const InputDecoration(labelText: 'Описание')), const SizedBox(height: 10), TextField(controller: duration, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Длительность (раунды)'))])), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')), FilledButton(onPressed: () { final value = int.tryParse(duration.text.trim()); if (name.text.trim().isEmpty || value == null || value < 0) return; Navigator.pop(context, (name.text, description.text, value)); }, child: const Text('Наложить'))]));
+    name.dispose(); description.dispose(); duration.dispose();
+    return result;
   }
 
   Future<void> _startBattle(SessionModel session) async {

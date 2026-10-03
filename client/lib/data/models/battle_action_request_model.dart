@@ -6,7 +6,7 @@ enum BattleTargetType { self, ally, external }
 
 enum BattleActionType { attack, spell, ability, item, manual }
 
-enum BattleEffectType { none, damage, healing, temporaryHp }
+enum BattleEffectType { none, damage, healing, temporaryHp, conditionApply, conditionRemove }
 
 extension BattleActionRequestStatusX on BattleActionRequestStatus {
   String get dbValue => switch (this) {
@@ -62,12 +62,16 @@ extension BattleEffectTypeX on BattleEffectType {
         BattleEffectType.damage => 'damage',
         BattleEffectType.healing => 'healing',
         BattleEffectType.temporaryHp => 'temporary_hp',
+        BattleEffectType.conditionApply => 'condition_apply',
+        BattleEffectType.conditionRemove => 'condition_remove',
       };
 
   static BattleEffectType fromDb(String? value) => switch (value) {
         'damage' => BattleEffectType.damage,
         'healing' => BattleEffectType.healing,
         'temporary_hp' => BattleEffectType.temporaryHp,
+        'condition_apply' => BattleEffectType.conditionApply,
+        'condition_remove' => BattleEffectType.conditionRemove,
         _ => BattleEffectType.none,
       };
 }

@@ -33,7 +33,6 @@ class SessionWorkspaceProvider extends ChangeNotifier {
   List<SessionRewardModel> _rewards = [];
   List<SessionLootModel> _loot = [];
   List<SessionHistoryEntryModel> _history = [];
-  int _levelUpCount = 0;
   bool _loading = false;
 
   List<SessionNoteModel> get notes => List.unmodifiable(_notes);
@@ -41,7 +40,6 @@ class SessionWorkspaceProvider extends ChangeNotifier {
   List<SessionRewardModel> get rewards => List.unmodifiable(_rewards);
   List<SessionLootModel> get loot => List.unmodifiable(_loot);
   List<SessionHistoryEntryModel> get history => List.unmodifiable(_history);
-  int get levelUpCount => _levelUpCount;
   int get battleCount => _history.where((entry) => entry.kind == 'battle').length;
   bool get loading => _loading;
   String get sessionSyncId => _sessionSyncId;
@@ -73,7 +71,6 @@ class SessionWorkspaceProvider extends ChangeNotifier {
     _rewards = await _repository.getRewards(id);
     _loot = await _repository.getLoot(id);
     _history = await _repository.getHistory(id);
-    _levelUpCount = await _repository.getLevelUpCount(id);
   }
 
   Future<SessionNoteModel> addNote({required String title, required String content}) async {
@@ -227,6 +224,61 @@ class SessionWorkspaceProvider extends ChangeNotifier {
     await _reloadAndNotify();
   }
 
+  Future<void> grantCurrency({
+    required String characterSyncId,
+    required String currency,
+    required int amount,
+    String reason = '',
+  }) async {
+    _requireGm();
+    final sessionId = _requireSession();
+    if (amount <= 0) throw ArgumentError.value(amount, 'amount', 'Количество должно быть положительным.');
+    if (connected) {
+      await _syncService!.grantCharacterCurrency(
+        sessionSyncId: _sessionSyncId,
+        characterSyncId: characterSyncId,
+        currency: currency,
+        amount: amount,
+        reason: reason.trim(),
+      );
+      await _reloadAndNotify();
+      return;
+    }
+    await _repository.grantCurrencyLocally(
+      sessionId: sessionId,
+      characterSyncId: characterSyncId,
+      currency: currency,
+      amount: amount,
+      reason: reason.trim(),
+      createdBy: actorId,
+    );
+    await _reloadAndNotify();
+  }
+
+  Future<void> grantInspiration({
+    required String characterSyncId,
+    String reason = '',
+  }) async {
+    _requireGm();
+    final sessionId = _requireSession();
+    if (connected) {
+      await _syncService!.grantCharacterInspiration(
+        sessionSyncId: _sessionSyncId,
+        characterSyncId: characterSyncId,
+        reason: reason.trim(),
+      );
+      await _reloadAndNotify();
+      return;
+    }
+    await _repository.grantInspirationLocally(
+      sessionId: sessionId,
+      characterSyncId: characterSyncId,
+      reason: reason.trim(),
+      createdBy: actorId,
+    );
+    await _reloadAndNotify();
+  }
+
   Future<void> claimLoot({
     required String lootSyncId,
     required String characterSyncId,
@@ -255,7 +307,6 @@ class SessionWorkspaceProvider extends ChangeNotifier {
     _rewards = [];
     _loot = [];
     _history = [];
-    _levelUpCount = 0;
     notifyListeners();
   }
 

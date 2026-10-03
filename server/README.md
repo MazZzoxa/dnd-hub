@@ -1,6 +1,6 @@
 # D&D Hub GM Server
 
-Local FastAPI/WebSocket server for D&D Hub LAN sessions (`v0.7.0`). It is started automatically by `Host Game` in the Flutter desktop client. The server keeps the authoritative campaign state and ordered event history in memory for the lifetime of the GM session.
+Local FastAPI/WebSocket server for D&D Hub LAN sessions (`v1.0.0`). It is started automatically by `Host Game` in the Flutter desktop client. The server keeps the authoritative campaign state and ordered event history in memory for the lifetime of the GM session.
 
 ## Manual run
 
@@ -33,14 +33,19 @@ The LAN server provides:
 - reconnect-safe replacement of a previous connection using the same `client_id`;
 - campaign/entity scope validation.
 
-The v0.7.0 server also provides authoritative Session Workspace state for:
+The v1.0.0 server provides authoritative Session Workspace and Gameplay State for:
 
 - `session_note`;
 - `session_event`;
 - `session_reward`;
-- `session_loot`.
+- `session_loot`;
+- `custom_action`;
+- `character_condition`;
+- Character life state (`normal` / `downed` / `dead`).
 
-GM-only game commands apply XP rewards and claim Loot atomically, updating the existing Character XP/Inventory state together with the Session context and History event. Battle start/finish events are exposed as Session Events without duplicating the existing Combat Journal.
+Authoritative GM commands cover HP, temporary HP, life state, XP, currency, inspiration and Conditions. Character changes are broadcast through the normal sync channel and significant gameplay changes are recorded in Session History / Combat Journal. Battle Actions can also apply or remove Conditions.
+
+GM-only game commands apply XP, currency and inspiration atomically with the corresponding Character state and Session History event; Loot remains part of the existing Session Workspace flow. Battle start/finish events are exposed as Session Events without duplicating the existing Combat Journal.
 
 The server is intentionally temporary. It does not replace the local SQLite database and it does not persist campaign state after the GM process exits.
 

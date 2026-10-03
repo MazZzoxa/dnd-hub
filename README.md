@@ -2,14 +2,14 @@
 
 A local-first, cross-platform D&D character manager built with Flutter — a fast, offline digital character sheet for use during actual game sessions.
 
-**Current version:** `v0.7.0`  
-**Status:** `v0.7.0` turns each Session into a persistent gameplay workspace with Journal, Events, XP Rewards, Loot and a unified History timeline, while keeping Battle as a separate workspace inside the Session.  
+**Current version:** `v1.0.0`  
+**Status:** `v1.0.0` completes the planned core product: character management, local library, import/export, campaigns, GM mode, local LAN sync, Battle, Session Workspace and Gameplay State. After v1.0.0, there is no fixed feature roadmap; the project is developed iteratively based on real-world use, bugs, feedback, needs and new ideas.  
 **Author:** [@MazZzoxa](https://github.com/MazZzoxa)
 
 🇬🇧 [English](#-dd-hub) · 🇷🇺 [Русский](#-dd-hub-1)
 
 <p align="center">
-  <img src="screenshots/win-overview.png" alt="D&D Hub — desktop overview" width="70%">
+  <img src="screenshots/v1.0/windows/overview.png" alt="D&D Hub — desktop overview" width="70%">
 </p>
 
 ---
@@ -22,7 +22,7 @@ D&D Hub is a local-first digital D&D character manager designed to be used direc
 
 The main principle is **local-first**: no account and no mandatory Internet connection are required. Character, campaign and progression data remain stored locally in SQLite. During a hosted local game, the GM runs a temporary local FastAPI/WebSocket server and player devices keep a local SQLite replica. The GM and Player use different campaign interfaces and permissions.
 
-### Features — v0.7.0
+### Features — v1.0.0
 
 **Character management**
 
@@ -52,6 +52,8 @@ The main principle is **local-first**: no account and no mandatory Internet conn
 - Separate lists for campaigns you created and campaigns you joined
 - Different GM and Player campaign interfaces and permissions
 - Player membership, automatic LAN member creation and character linking
+- Player can unlink their own character from a joined campaign without leaving the campaign
+- GM character list excludes player characters linked to campaigns
 - Player disconnect from a joined LAN campaign
 - GM Dashboard for a selected campaign
 - Player/character overview with HP, AC and initiative
@@ -84,7 +86,7 @@ The main principle is **local-first**: no account and no mandatory Internet conn
 - Self/Ally approved effects can update synchronized Character State; External targets never modify enemy state
 - Structured append-only Combat Journal with the last 100 events restored to reconnecting clients
 - Existing direct GM Battle tools for Damage / Healing / Temporary HP remain available
-- No enemies/NPCs, automatic initiative tracking, rounds, automatic turn order, conditions, battle map or automatic combat-rule resolution
+- No enemies/NPCs, automatic initiative tracking, rounds, automatic turn order, battle map or automatic combat-rule resolution
 
 **Session Workspace — v0.7.0**
 
@@ -101,6 +103,19 @@ The main principle is **local-first**: no account and no mandatory Internet conn
 - Session participants can be opened in a detailed read-only character view
 - v0.6.1 `Session.notes` remains as legacy data and is migrated into a Session Note when upgrading the database
 - GM has write access; Player has read-only Session Workspace access
+
+**Gameplay State — v1.0.0**
+
+- Character life state: `normal` → `downed` → `dead`, with GM-controlled recovery
+- Death Saves remain separate from the life state; `HP = 0` does not directly mean death
+- Conditions are persistent, synchronized character state with source, duration, scope and metadata
+- Battle actions can apply or remove Conditions after GM approval
+- Improvised actions using the existing `manual` Battle Action type
+- One-time improvised actions and saved Custom Actions for repeated use
+- GM rewards for XP, Copper, Silver, Electrum, Gold, Platinum and Inspiration
+- Authoritative GM commands for HP, temporary HP, XP, currency, Inspiration, Conditions and life state
+- Gameplay changes are represented in Session History through Session Events and Combat Journal
+- v1.0 keeps the GM as the rules authority and the server as the synchronized gameplay-state authority
 
 **Interface**
 
@@ -119,25 +134,67 @@ The main principle is **local-first**: no account and no mandatory Internet conn
 
 ### Screenshots
 
-| | Windows | Android |
-|---|---|---|
-| **Overview** | ![Windows overview](screenshots/win-overview.png) | ![Android overview](screenshots/android-overview.png) |
-| **Inventory** | ![Windows inventory](screenshots/win-inventory.png) | ![Android inventory](screenshots/android-inventory.png) |
-| **Spells** | ![Windows spells](screenshots/win-spells.png) | ![Android spells](screenshots/android-spells.png) |
-| **Abilities** | ![Windows abilities](screenshots/win-abilities.png) | ![Android abilities](screenshots/android-abilities.png) |
+The screenshots below show the current `v1.0.0` interface on Windows and Android. The gallery focuses on the main product flow: character management → campaigns → local LAN play → sessions → battle.
 
-<details>
-<summary>More screenshots</summary>
+<table>
+  <tr>
+    <th>Area</th>
+    <th>Windows</th>
+    <th>Android</th>
+  </tr>
+  <tr>
+    <td><strong>Character Overview</strong></td>
+    <td><img src="screenshots/v1.0/windows/overview.png" alt="D&D Hub — Windows character overview" width="620"></td>
+    <td><img src="screenshots/v1.0/android/overview.jpg" alt="D&D Hub — Android character overview" width="260"></td>
+  </tr>
+  <tr>
+    <td><strong>Character List</strong></td>
+    <td><img src="screenshots/v1.0/windows/character-list.png" alt="D&D Hub — Windows character list" width="620"></td>
+    <td><img src="screenshots/v1.0/android/character-list.jpg" alt="D&D Hub — Android character list" width="260"></td>
+  </tr>
+  <tr>
+    <td><strong>Local Content Library</strong></td>
+    <td><img src="screenshots/v1.0/windows/library.png" alt="D&D Hub — Windows local content library" width="620"></td>
+    <td>—</td>
+  </tr>
+  <tr>
+    <td><strong>Campaign</strong></td>
+    <td><img src="screenshots/v1.0/windows/campaign.png" alt="D&D Hub — Windows campaign participants" width="620"></td>
+    <td><img src="screenshots/v1.0/android/campaign.jpg" alt="D&D Hub — Android campaign" width="260"></td>
+  </tr>
+  <tr>
+    <td><strong>GM Dashboard</strong></td>
+    <td><img src="screenshots/v1.0/windows/gm-dashboard.png" alt="D&D Hub — Windows GM dashboard" width="620"></td>
+    <td>—</td>
+  </tr>
+  <tr>
+    <td><strong>Local LAN Game</strong></td>
+    <td><img src="screenshots/v1.0/windows/lan.png" alt="D&D Hub — Windows local LAN game" width="620"></td>
+    <td><img src="screenshots/v1.0/android/lan.jpg" alt="D&D Hub — Android local LAN game" width="260"></td>
+  </tr>
+  <tr>
+    <td><strong>Session Workspace</strong></td>
+    <td><img src="screenshots/v1.0/windows/session.png" alt="D&D Hub — Windows Session Workspace" width="620"></td>
+    <td><img src="screenshots/v1.0/android/session.jpg" alt="D&D Hub — Android Session Workspace" width="260"></td>
+  </tr>
+  <tr>
+    <td><strong>Battle Workspace</strong></td>
+    <td><img src="screenshots/v1.0/windows/battle.png" alt="D&D Hub — Windows Battle Workspace" width="620"></td>
+    <td><img src="screenshots/v1.0/android/battle.jpg" alt="D&D Hub — Android Battle Workspace" width="260"></td>
+  </tr>
+  <tr>
+    <td><strong>Battle Actions / History</strong></td>
+    <td><img src="screenshots/v1.0/windows/battle-history.png" alt="D&D Hub — Windows battle history" width="620"></td>
+    <td><img src="screenshots/v1.0/android/battle-actions.jpg" alt="D&D Hub — Android battle actions" width="260"></td>
+  </tr>
+  <tr>
+    <td><strong>Bio</strong></td>
+    <td><img src="screenshots/v1.0/windows/bio.png" alt="D&D Hub — Windows character bio" width="620"></td>
+    <td><img src="screenshots/v1.0/android/bio.jpg" alt="D&D Hub — Android character bio" width="260"></td>
+  </tr>
+</table>
 
-| | Windows | Android |
-|---|---|---|
-| **Character list** | ![Windows list](screenshots/win-list.png) | ![Android list](screenshots/android-list.png) |
-| **Bio** | ![Windows bio](screenshots/win-bio.png) | ![Android bio](screenshots/android-bio.png) |
-| **Notes** | ![Windows notes](screenshots/win-notes.png) | ![Android notes](screenshots/android-notes.png) |
-| **Settings** | ![Windows settings](screenshots/win-settings.png) | ![Android settings](screenshots/android-settings.png) |
-| **New/Edit character** | ![Windows form](screenshots/win-form.png) | ![Android form](screenshots/android-form.png) |
-
-</details>
+Additional in-app features include Inventory, Spells, Abilities, Notes, Local Content Library, Import Preview, Conditions, Life State, Custom Actions, Session Rewards/Loot and Action Requests.
 
 ### Getting started
 
@@ -191,7 +248,7 @@ docs/
 
 ### Roadmap
 
-The project follows a **local-first → library → campaign → GM → sync → battle** progression.
+The planned roadmap ends with **v1.0.0**, which represents the complete core product.
 
 | Version | Milestone |
 |---|---|
@@ -203,8 +260,10 @@ The project follows a **local-first → library → campaign → GM → sync →
 | **v0.5.0** ✅ | LAN/WebSocket networking, automatic Player membership, GM/Player interfaces, campaign permissions and recovery |
 | **v0.6.1** ✅ | Battle Workspace: turns, Actions, targets, Action Requests, GM review and Combat Journal |
 | **v0.7.0** ✅ | Extended Session Workspace: Journal, Events, Rewards, Loot and unified History |
-| v1.0 | Complete core product |
-| v1.1+ | World system, AI assistant, AI GM |
+| **v1.0.0** ✅ | Complete core product: Gameplay State, Conditions, Custom Actions, GM Rewards, authoritative commands and extended history |
+| **After v1.0.0** | Ongoing development based on real-world use, bugs, feedback, needs and new ideas |
+
+There is no fixed list of v1.1, v1.2, v1.3 or later milestones. New versions will be released when there are meaningful improvements worth delivering.
 
 Full detailed design document: [`docs/D&D Hub.md`](docs/D%26D%20Hub.md).
 
@@ -226,7 +285,7 @@ D&D Hub — кроссплатформенный **local-first** менедже�
 
 Главный принцип — **local-first**: аккаунт, сервер и обязательное подключение к Интернету не требуются. Данные персонажей, кампаний и прогрессии хранятся локально в SQLite. Во время локальной игры GM запускает временный локальный FastAPI/WebSocket-сервер, а устройства игроков сохраняют локальную SQLite-реплику. Интерфейсы и права GM и Player различаются.
 
-### Возможности — v0.7.0
+### Возможности — v1.0.0
 
 **Персонажи**
 
@@ -278,6 +337,19 @@ D&D Hub — кроссплатформенный **local-first** менедже�
 - Старое поле `Session.notes` сохраняется как legacy и при миграции переносится в Session Note
 - GM может изменять Session Workspace; Player получает режим только для чтения
 
+**Gameplay State — v1.0.0**
+
+- Жизненное состояние персонажа: `normal` → `downed` → `dead`, с восстановлением под контролем GM
+- Death Saves остаются отдельной механикой; `HP = 0` не означает автоматическую смерть
+- Conditions хранятся как постоянное синхронизируемое состояние персонажа с источником, длительностью, областью действия и metadata
+- Battle Actions после подтверждения GM могут накладывать и снимать Conditions
+- Импровизированные действия на базе уже существующего типа `manual`
+- Одноразовые импровизированные действия и сохранённые Custom Actions для повторного использования
+- GM Rewards для XP, Copper, Silver, Electrum, Gold, Platinum и Inspiration
+- Авторитетные GM-команды для HP, временных HP, XP, валюты, Inspiration, Conditions и жизненного состояния
+- Значимые игровые изменения попадают в Session History через Session Events и Combat Journal
+- GM остаётся источником истины для правил, а сервер — источником истины для синхронизируемого игрового состояния
+
 **Интерфейс**
 
 - Адаптивный Flutter-интерфейс
@@ -311,7 +383,7 @@ D&D Hub — кроссплатформенный **local-first** менедже�
 - Подтверждённые эффекты по Self/Ally могут изменить синхронизированное состояние персонажа; External не изменяет состояние врагов.
 - Combat Journal хранится структурированно, работает как append-only история и восстанавливает последние 100 событий при reconnect.
 - Прямые GM-инструменты Damage / Healing / Temporary HP из v0.6 остаются доступны.
-- Battle Workspace не реализует врагов/NPC, автоматический initiative tracker, раунды, автоматический порядок ходов, conditions, карту боя или автоматическое применение боевых правил.
+- Battle Workspace не реализует врагов/NPC, автоматический initiative tracker, раунды, автоматический порядок ходов, карту боя или автоматическое применение боевых правил.
 
 ### Запуск проекта
 
@@ -363,7 +435,7 @@ docs/
 
 ### Roadmap
 
-Проект развивается по схеме **локальный клиент → библиотека → кампания → GM → синхронизация → бой**.
+Запланированная разработка завершается на **v1.0.0**, где собран полный основной функционал D&D Hub.
 
 | Версия | Этап |
 |---|---|
@@ -375,8 +447,10 @@ docs/
 | **v0.5.0** ✅ | Локальный GM-сервер + LAN-синхронизация в реальном времени, роли GM/Player и управление участниками |
 | **v0.6.1** ✅ | Battle Workspace: ходы, Actions, цели, Action Requests, GM review и Combat Journal |
 | **v0.7.0** ✅ | Extended Session Workspace: Journal, Events, Rewards, Loot и единая History |
-| v1.0 | Завершённый базовый продукт |
-| v1.1+ | Мир кампании, AI-ассистент, AI GM |
+| **v1.0.0** ✅ | Завершённый основной продукт: Gameplay State, Conditions, Custom Actions, GM Rewards, авторитетные команды и расширенная история |
+| **После v1.0.0** | Дальнейшее развитие по мере использования, исправления ошибок, обратной связи, необходимости и появления новых идей |
+
+Фиксированного списка v1.1, v1.2, v1.3 и последующих версий больше нет. Новые версии будут появляться тогда, когда накопятся действительно полезные изменения.
 
 Полный подробный план разработки: [`docs/D&D Hub.md`](docs/D%26D%20Hub.md).
 

@@ -39,6 +39,9 @@ class CampaignService {
   Future<List<CampaignMemberModel>> getMembers(int campaignId) => _repository.getMembers(campaignId);
   Future<List<Map<String, dynamic>>> getMembershipsForCharacter(int characterId) => _repository.getMembershipsForCharacter(characterId);
 
+  Future<Set<int>> getPlayerLinkedCharacterIdsForGm(String clientId) =>
+      _repository.getPlayerLinkedCharacterIdsForGm(clientId);
+
   Future<int> addPlayer({required int campaignId, required String name}) async {
     final cleanName = name.trim();
     if (cleanName.isEmpty) throw ArgumentError.value(name, 'name', 'Имя участника обязательно.');

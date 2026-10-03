@@ -9,10 +9,12 @@ import '../widgets/import_file_dialog.dart';
 import '../widgets/import_url_dialog.dart';
 import '../../data/models/character_model.dart';
 import '../../domain/providers/character_provider.dart';
+import '../../domain/providers/campaign_provider.dart';
 import '../../data/export/export_manager.dart';
 import '../../data/import/import_manager.dart';
 import '../widgets/export_format_dialog.dart';
 import '../widgets/character_avatar.dart';
+import '../widgets/dice_roller_sheet.dart';
 import 'character_form_screen.dart';
 import 'character_home_screen.dart';
 import 'library_screen.dart';
@@ -29,11 +31,21 @@ class CharacterListScreen extends StatefulWidget {
 }
 
 class _CharacterListScreenState extends State<CharacterListScreen> {
+  bool _initializing = true;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<CharacterProvider>().loadCharacters();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final characters = context.read<CharacterProvider>();
+      final campaigns = context.read<CampaignProvider>();
+      await Future.wait([
+        characters.loadCharacters(),
+        campaigns.loadCampaigns(),
+      ]);
+      if (mounted) {
+        setState(() => _initializing = false);
+      }
     });
   }
 
@@ -116,20 +128,27 @@ class _CharacterListScreenState extends State<CharacterListScreen> {
           ),
         ],
       ),
-      body: Consumer<CharacterProvider>(
-        builder: (context, provider, _) {
-          if (provider.loading) {
+      body: Consumer2<CharacterProvider, CampaignProvider>(
+        builder: (context, characters, campaigns, _) {
+          if (_initializing || characters.loading || campaigns.loading) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (provider.characters.isEmpty) {
+
+          final visibleCharacters = characters.characters
+              .where((character) =>
+                  !campaigns.playerLinkedCharacterIds.contains(character.id))
+              .toList(growable: false);
+
+          if (visibleCharacters.isEmpty) {
             return _EmptyState(onCreate: () => _openCreate(context));
           }
+
           return ListView.separated(
             padding: const EdgeInsets.all(16),
-            itemCount: provider.characters.length,
+            itemCount: visibleCharacters.length,
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
-              final character = provider.characters[index];
+              final character = visibleCharacters[index];
               return _CharacterCard(
                 character: character,
                 onTap: () => _openCharacter(context, character),
@@ -140,10 +159,23 @@ class _CharacterListScreenState extends State<CharacterListScreen> {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openCreate(context),
-        icon: const Icon(Icons.add),
-        label: const Text('Новый персонаж'),
+      floatingActionButton: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.small(
+            heroTag: 'dice',
+            tooltip: 'Бросок кубиков',
+            onPressed: () => showDiceRollerWithResult(context),
+            child: const Icon(Icons.casino_outlined),
+          ),
+          const SizedBox(width: 12),
+          FloatingActionButton.extended(
+            heroTag: 'new-character',
+            onPressed: () => _openCreate(context),
+            icon: const Icon(Icons.add),
+            label: const Text('Новый персонаж'),
+          ),
+        ],
       ),
     );
   }
@@ -226,8 +258,12 @@ class _CharacterListScreenState extends State<CharacterListScreen> {
       final result = await manager.importBytes(typedBytes);
       if (!context.mounted) return;
       final characters = context.read<CharacterProvider>();
+      final campaigns = context.read<CampaignProvider>();
       characters.clearSelection();
-      await characters.loadCharacters();
+      await Future.wait([
+        characters.loadCharacters(),
+        campaigns.loadCampaigns(),
+      ]);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(result.title)),
       );

@@ -645,6 +645,125 @@ def _send_command(ws, command_id: str, command: str, **payload: object) -> None:
     })
 
 
+def test_active_battle_reflects_direct_life_state_and_conditions() -> None:
+    hub = HubServer(
+        campaign_id='campaign-1',
+        campaign_name='Test Campaign',
+        gm_name='GM',
+        invite_token='token',
+    )
+    client = TestClient(build_app(hub, port=8765))
+    with client.websocket_connect(
+        '/ws?token=token&client_id=gm-1&campaign_id=campaign-1&role=gm&display_name=GM'
+    ) as gm, client.websocket_connect(
+        '/ws?token=token&client_id=player-1&campaign_id=campaign-1&role=player&display_name=Alice'
+    ) as player:
+        assert gm.receive_json()['payload']['event'] == 'session.ready'
+        assert player.receive_json()['payload']['event'] == 'session.ready'
+        assert gm.receive_json()['payload']['event'] == 'player.joined'
+
+        _send_command(gm, 'snapshot-state-battle', 'snapshot.publish', entities=_battle_snapshot())
+        assert _receive_until_ack(gm, 'snapshot-state-battle')['payload']['event'] == 'ack'
+        assert player.receive_json()['payload']['event'] == 'state.snapshot'
+
+        _send_command(gm, 'state-battle-start', 'battle.start', session_sync_id='session-1')
+        assert gm.receive_json()['payload']['event'] == 'battle.started'
+        assert player.receive_json()['payload']['event'] == 'battle.started'
+        battle_id = gm.receive_json()['payload']['battle_sync_id']
+
+        _send_command(
+            gm,
+            'state-condition-apply',
+            'character.condition.apply',
+            character_sync_id='character-1',
+            name='Poisoned',
+            description='Токсин действует.',
+            duration_rounds=2,
+            remaining_rounds=2,
+            battle_sync_id=battle_id,
+            session_sync_id='session-1',
+        )
+        gm_events = []
+        player_events = []
+        while True:
+            event = gm.receive_json()
+            gm_events.append(event)
+            if event['payload'].get('event') == 'ack' and event['payload'].get('command_id') == 'state-condition-apply':
+                break
+        while len(player_events) < 3:
+            player_events.append(player.receive_json())
+        assert [event['payload'].get('event') for event in gm_events[:3]] == [
+            'state.upsert', 'battle.journal.entry', 'battle.state'
+        ]
+        assert [event['payload'].get('event') for event in player_events] == [
+            'state.upsert', 'battle.journal.entry', 'battle.state'
+        ]
+        condition_id = gm_events[0]['payload']['data']['sync_id']
+        assert any(
+            event['payload'].get('data', {}).get('type') == 'condition_applied'
+            for event in gm_events
+            if event['payload'].get('event') == 'battle.journal.entry'
+        )
+        battle_state = next(event for event in gm_events if event['payload'].get('event') == 'battle.state')
+        projection = next(item for item in battle_state['payload']['projections'] if item['character_sync_id'] == 'character-1')
+        assert projection['conditions'][0]['name'] == 'Poisoned'
+        assert projection['life_state'] == 'normal'
+        assert hub.state[('character_condition', condition_id)]['active'] == 1
+
+        _send_command(
+            gm,
+            'state-life-dead',
+            'character.life_state.set',
+            character_sync_id='character-1',
+            life_state='dead',
+            battle_sync_id=battle_id,
+            session_sync_id='session-1',
+        )
+        gm_events = []
+        player_events = []
+        while True:
+            event = gm.receive_json()
+            gm_events.append(event)
+            if event['payload'].get('event') == 'ack' and event['payload'].get('command_id') == 'state-life-dead':
+                break
+        while len(player_events) < 3:
+            player_events.append(player.receive_json())
+        assert [event['payload'].get('event') for event in gm_events[:3]] == [
+            'state.upsert', 'battle.journal.entry', 'battle.state'
+        ]
+        assert any(
+            event['payload'].get('data', {}).get('type') == 'death'
+            for event in gm_events
+            if event['payload'].get('event') == 'battle.journal.entry'
+        )
+        battle_state = next(event for event in gm_events if event['payload'].get('event') == 'battle.state')
+        projection = next(item for item in battle_state['payload']['projections'] if item['character_sync_id'] == 'character-1')
+        assert projection['life_state'] == 'dead'
+
+        _send_command(
+            gm,
+            'state-life-revive',
+            'character.life_state.set',
+            character_sync_id='character-1',
+            life_state='normal',
+            battle_sync_id=battle_id,
+            session_sync_id='session-1',
+        )
+        gm_events = []
+        while True:
+            event = gm.receive_json()
+            gm_events.append(event)
+            if event['payload'].get('event') == 'ack' and event['payload'].get('command_id') == 'state-life-revive':
+                break
+        while player.receive_json()['payload'].get('event') != 'battle.state':
+            pass
+        assert any(
+            event['payload'].get('data', {}).get('type') == 'revived'
+            for event in gm_events
+            if event['payload'].get('event') == 'battle.journal.entry'
+        )
+
+
 def test_battle_start_damage_heal_temp_hp_and_end() -> None:
     hub = HubServer(
         campaign_id='campaign-1',
@@ -685,6 +804,14 @@ def test_battle_start_damage_heal_temp_hp_and_end() -> None:
         gm_ack = gm.receive_json()
         assert gm_character['payload']['event'] == 'state.upsert'
         assert player_character['payload']['event'] == 'state.upsert'
+        assert gm_character['payload']['entity'] == 'character'
+        assert player_character['payload']['entity'] == 'character'
+        assert gm_character['payload']['data']['sync_id'] == 'character-1'
+        assert player_character['payload']['data']['sync_id'] == 'character-1'
+        assert gm_character['payload']['data']['hp'] == 27
+        assert player_character['payload']['data']['hp'] == 27
+        assert gm_character['payload']['data']['temporary_hp'] == 0
+        assert player_character['payload']['data']['temporary_hp'] == 0
         assert gm_battle['payload']['event'] == 'battle.state'
         assert player_battle['payload']['event'] == 'battle.state'
         assert gm_ack['payload']['event'] == 'ack'
@@ -692,19 +819,23 @@ def test_battle_start_damage_heal_temp_hp_and_end() -> None:
         assert hub.state[('character', 'character-1')]['temporary_hp'] == 0
 
         _send_command(gm, 'battle-heal-1', 'battle.heal', battle_sync_id=battle_id, character_sync_id='character-1', amount=50)
-        gm.receive_json()
-        player.receive_json()
+        gm_heal = gm.receive_json()
+        player_heal = player.receive_json()
         gm.receive_json()
         player.receive_json()
         assert gm.receive_json()['payload']['event'] == 'ack'
+        assert gm_heal['payload']['data']['hp'] == 42
+        assert player_heal['payload']['data']['hp'] == 42
         assert hub.state[('character', 'character-1')]['hp'] == 42
 
         _send_command(gm, 'battle-temp-1', 'battle.temp_hp', battle_sync_id=battle_id, character_sync_id='character-1', amount=10)
-        gm.receive_json()
-        player.receive_json()
+        gm_temp = gm.receive_json()
+        player_temp = player.receive_json()
         gm.receive_json()
         player.receive_json()
         assert gm.receive_json()['payload']['event'] == 'ack'
+        assert gm_temp['payload']['data']['temporary_hp'] == 10
+        assert player_temp['payload']['data']['temporary_hp'] == 10
         assert hub.state[('character', 'character-1')]['temporary_hp'] == 10
 
         _send_command(gm, 'battle-end-1', 'battle.end', battle_sync_id=battle_id)
@@ -1358,6 +1489,11 @@ def test_session_reward_is_atomic_and_duplicate_safe() -> None:
         _send_command(gm, 'reward-1', 'session.reward.apply', session_sync_id='session-1', character_sync_id='character-1', amount=250, reason='Культисты')
         messages = [gm.receive_json() for _ in range(5)]
         assert [m['payload']['event'] for m in messages[:4]] == ['state.upsert', 'state.upsert', 'state.upsert', 'state.upsert']
+        character_event = messages[0]['payload']
+        assert character_event['entity'] == 'character'
+        assert character_event['data']['sync_id'] == 'character-1'
+        assert character_event['data']['xp'] == 6750
+        assert character_event['data']['level'] == 5
         ack = messages[4]
         assert ack['payload']['event'] == 'ack'
         assert ack['payload']['character']['xp'] == 6750
@@ -1453,3 +1589,431 @@ def test_campaign_delete_cascades_session_workspace_and_battle_children() -> Non
     })
     hub._delete_state_entry('campaign', 'campaign-1')
     assert hub.state == {}
+
+
+def _receive_until_ack(ws, command_id: str) -> dict:
+    while True:
+        event = ws.receive_json()
+        payload = event.get('payload', {})
+        if payload.get('event') == 'ack' and payload.get('command_id') == command_id:
+            return event
+
+
+def test_v1_gameplay_state_commands_are_authoritative_and_synced() -> None:
+    hub = HubServer(
+        campaign_id='campaign-1',
+        campaign_name='Test Campaign',
+        gm_name='GM',
+        invite_token='token',
+    )
+    client = TestClient(build_app(hub, port=8765))
+    with client.websocket_connect(
+        '/ws?token=token&client_id=gm-1&campaign_id=campaign-1&role=gm&display_name=GM'
+    ) as gm, client.websocket_connect(
+        '/ws?token=token&client_id=player-1&campaign_id=campaign-1&role=player&display_name=Alice'
+    ) as player:
+        assert gm.receive_json()['payload']['event'] == 'session.ready'
+        assert player.receive_json()['payload']['event'] == 'session.ready'
+        assert gm.receive_json()['payload']['event'] == 'player.joined'
+
+        _send_command(gm, 'snapshot-v1-1', 'snapshot.publish', entities=_battle_snapshot())
+        assert _receive_until_ack(gm, 'snapshot-v1-1')['payload']['event'] == 'ack'
+        assert player.receive_json()['payload']['event'] == 'state.snapshot'
+
+        _send_command(
+            gm,
+            'hp-down-v1',
+            'character.hp.modify',
+            character_sync_id='character-1',
+            delta=-38,
+            session_sync_id='session-1',
+        )
+        gm_ack = _receive_until_ack(gm, 'hp-down-v1')
+        player_event = player.receive_json()
+        while player_event['payload'].get('event') != 'state.upsert' or player_event['payload'].get('entity') != 'character':
+            player_event = player.receive_json()
+        assert gm_ack['payload']['character']['hp'] == 0
+        assert gm_ack['payload']['character']['life_state'] == 'downed'
+        assert hub.state[('character', 'character-1')]['life_state'] == 'downed'
+        assert player_event['payload']['data']['life_state'] == 'downed'
+
+        _send_command(
+            gm,
+            'life-dead-v1',
+            'character.life_state.set',
+            character_sync_id='character-1',
+            life_state='dead',
+            session_sync_id='session-1',
+        )
+        dead_ack = _receive_until_ack(gm, 'life-dead-v1')
+        assert dead_ack['payload']['character']['life_state'] == 'dead'
+
+        _send_command(
+            gm,
+            'life-revive-v1',
+            'character.life_state.set',
+            character_sync_id='character-1',
+            life_state='normal',
+            session_sync_id='session-1',
+        )
+        revive_ack = _receive_until_ack(gm, 'life-revive-v1')
+        assert revive_ack['payload']['character']['life_state'] == 'normal'
+
+        _send_command(
+            gm,
+            'currency-v1',
+            'character.currency.grant',
+            character_sync_id='character-1',
+            currency='gold',
+            amount=150,
+            session_sync_id='session-1',
+            reason='Награда за квест',
+        )
+        currency_ack = _receive_until_ack(gm, 'currency-v1')
+        assert currency_ack['payload']['character']['gold'] == 150
+        assert currency_ack['payload']['reward']['type'] == 'currency'
+        assert currency_ack['payload']['reward']['currency'] == 'gold'
+
+        _send_command(
+            gm,
+            'inspiration-v1',
+            'character.inspiration.grant',
+            character_sync_id='character-1',
+            session_sync_id='session-1',
+        )
+        inspiration_ack = _receive_until_ack(gm, 'inspiration-v1')
+        assert inspiration_ack['payload']['character']['inspiration'] == 1
+
+        _send_command(
+            gm,
+            'condition-add-v1',
+            'character.condition.apply',
+            character_sync_id='character-1',
+            session_sync_id='session-1',
+            name='Poisoned',
+            description='Отравлен токсином.',
+            source_label='Goblin Assassin',
+            duration_rounds=2,
+            remaining_rounds=2,
+            scope='character',
+        )
+        condition_ack = _receive_until_ack(gm, 'condition-add-v1')
+        condition = condition_ack['payload']['condition']
+        assert condition['name'] == 'Poisoned'
+        assert condition['remaining_rounds'] == 2
+        assert condition['active'] == 1
+        assert hub.state[('character_condition', condition['sync_id'])]['active'] == 1
+
+        _send_command(
+            gm,
+            'condition-remove-v1',
+            'character.condition.remove',
+            condition_sync_id=condition['sync_id'],
+            session_sync_id='session-1',
+        )
+        remove_ack = _receive_until_ack(gm, 'condition-remove-v1')
+        assert remove_ack['payload']['condition']['active'] == 0
+        assert hub.state[('character_condition', condition['sync_id'])]['remaining_rounds'] == 0
+
+        player.send_json({
+            'protocol': PROTOCOL,
+            'type': 'command',
+            'id': 'custom-action-v1',
+            'client_id': 'player-1',
+            'campaign_id': 'campaign-1',
+            'payload': {
+                'command': 'state.upsert',
+                'entity': 'custom_action',
+                'data': {
+                    'sync_id': 'custom-action-1',
+                    'character_sync_id': 'character-1',
+                    'name': 'Опрокинуть жаровню',
+                    'description': 'Толкаю жаровню на врага.',
+                    'attack_formula': '1d20 + 5',
+                    'effect_formula': '1d6',
+                    'effect_type': 'damage',
+                },
+            },
+        })
+        custom_action = gm.receive_json()
+        assert custom_action['payload']['event'] == 'state.upsert'
+        assert custom_action['payload']['entity'] == 'custom_action'
+        assert custom_action['payload']['data']['name'] == 'Опрокинуть жаровню'
+        assert hub.state[('custom_action', 'custom-action-1')]['character_sync_id'] == 'character-1'
+        custom_ack = _receive_until_ack(player, 'custom-action-v1')
+        assert custom_ack['payload']['event'] == 'ack'
+
+
+def test_battle_events_stay_in_battle_journal_not_session_history() -> None:
+    hub = HubServer(campaign_id='campaign-1', campaign_name='Test Campaign', gm_name='GM', invite_token='token')
+    client = TestClient(build_app(hub, port=8765))
+    with client.websocket_connect('/ws?token=token&client_id=gm-1&campaign_id=campaign-1&role=gm&display_name=GM') as gm:
+        assert gm.receive_json()['payload']['event'] == 'session.ready'
+        snapshot = _battle_snapshot() + [
+            {'entity': 'battle', 'data': {
+                'sync_id': 'battle-1', 'campaign_sync_id': 'campaign-1', 'session_sync_id': 'session-1',
+                'name': 'Battle', 'status': 'active', 'started_at': '2026-10-01T12:00:00Z',
+                'created_at': '2026-10-01T12:00:00Z', 'updated_at': '2026-10-01T12:00:00Z',
+            }},
+        ]
+        _send_command(gm, 'battle-events-snapshot', 'snapshot.publish', entities=snapshot)
+        assert _receive_until_ack(gm, 'battle-events-snapshot')['payload']['event'] == 'ack'
+
+        _send_command(
+            gm, 'battle-condition', 'character.condition.apply',
+            character_sync_id='character-1', session_sync_id='session-1', battle_sync_id='battle-1',
+            name='Poisoned', description='', duration_rounds=2, remaining_rounds=2,
+        )
+        ack = _receive_until_ack(gm, 'battle-condition')
+        assert ack['payload']['battle_sync_id'] == 'battle-1'
+        assert not any(
+            data.get('event_type') == 'condition_applied'
+            and data.get('session_sync_id') == 'session-1'
+            for (entity, _), data in hub.state.items()
+            if entity == 'session_event'
+        )
+        assert any(
+            data.get('battle_sync_id') == 'battle-1' and data.get('type') == 'condition_applied'
+            for (entity, _), data in hub.state.items()
+            if entity == 'battle_log_entry'
+        )
+
+        _send_command(
+            gm, 'battle-death', 'character.life_state.set',
+            character_sync_id='character-1', session_sync_id='session-1', battle_sync_id='battle-1',
+            life_state='dead',
+        )
+        _receive_until_ack(gm, 'battle-death')
+        _send_command(
+            gm, 'battle-revive', 'character.life_state.set',
+            character_sync_id='character-1', session_sync_id='session-1', battle_sync_id='battle-1',
+            life_state='normal',
+        )
+        _receive_until_ack(gm, 'battle-revive')
+        session_event_types = {
+            data.get('type')
+            for (entity, _), data in hub.state.items()
+            if entity == 'session_event' and data.get('session_sync_id') == 'session-1'
+        }
+        assert 'death' not in session_event_types
+        assert 'revived' not in session_event_types
+        battle_event_types = {
+            data.get('type')
+            for (entity, _), data in hub.state.items()
+            if entity == 'battle_log_entry' and data.get('battle_sync_id') == 'battle-1'
+        }
+        assert {'condition_applied', 'death', 'revived'} <= battle_event_types
+
+
+def test_member_link_character_can_publish_initial_loadout_in_one_operation() -> None:
+    hub = HubServer(campaign_id='campaign-1', campaign_name='Test Campaign', gm_name='GM', invite_token='token')
+    client = TestClient(build_app(hub, port=8765))
+    with client.websocket_connect('/ws?token=token&client_id=gm-1&campaign_id=campaign-1&role=gm&display_name=GM') as gm, \
+         client.websocket_connect('/ws?token=token&client_id=player-1&campaign_id=campaign-1&role=player&display_name=Player') as player:
+        assert gm.receive_json()['payload']['event'] == 'session.ready'
+        assert player.receive_json()['payload']['event'] == 'session.ready'
+        hub.state[('campaign_member', 'member-1')] = {
+            'sync_id': 'member-1', 'campaign_sync_id': 'campaign-1', 'client_id': 'player-1',
+            'role': 'player', 'linked_character_sync_id': None,
+        }
+        hub.state[('campaign', 'campaign-1')] = {'sync_id': 'campaign-1', 'name': 'Test Campaign'}
+
+        _send_command(
+            player,
+            'link-with-loadout',
+            'member.link_character',
+            member_sync_id='member-1',
+            character={'sync_id': 'character-1', 'name': 'Mira', 'hp': 10, 'max_hp': 10},
+            loadout=[
+                {'entity': 'attack', 'data': {'sync_id': 'attack-1', 'character_sync_id': 'character-1', 'name': 'Longsword'}},
+                {'entity': 'spell', 'data': {'sync_id': 'spell-1', 'character_sync_id': 'character-1', 'name': 'Fire Bolt'}},
+                {'entity': 'ability', 'data': {'sync_id': 'ability-1', 'character_sync_id': 'character-1', 'name': 'Second Wind'}},
+                {'entity': 'item', 'data': {'sync_id': 'item-1', 'character_sync_id': 'character-1', 'name': 'Potion'}},
+            ],
+        )
+
+        gm_entities = []
+        for _ in range(10):
+            message = gm.receive_json()
+            payload = message.get('payload', {})
+            entity = payload.get('entity')
+            if entity is not None:
+                gm_entities.append(entity)
+            if {'character', 'campaign_member', 'attack', 'spell', 'ability', 'item'} <= set(gm_entities):
+                break
+        assert {'character', 'campaign_member', 'attack', 'spell', 'ability', 'item'} <= set(gm_entities)
+
+        player_entities = []
+        for _ in range(2):
+            message = player.receive_json()
+            payload = message.get('payload', {})
+            entity = payload.get('entity')
+            if entity is not None:
+                player_entities.append(entity)
+        assert {'character', 'campaign_member'} <= set(player_entities)
+        ack = _receive_until_ack(player, 'link-with-loadout')
+        assert ack['payload']['published'] == 4
+        assert hub.state[('attack', 'attack-1')]['name'] == 'Longsword'
+        assert hub.state[('spell', 'spell-1')]['name'] == 'Fire Bolt'
+
+
+def test_character_loadout_request_returns_all_action_entities() -> None:
+    hub = HubServer(campaign_id='campaign-1', campaign_name='Test Campaign', gm_name='GM', invite_token='token')
+    client = TestClient(build_app(hub, port=8765))
+    with client.websocket_connect('/ws?token=token&client_id=gm-1&campaign_id=campaign-1&role=gm&display_name=GM') as gm:
+        assert gm.receive_json()['payload']['event'] == 'session.ready'
+        snapshot = _battle_snapshot() + [
+            {'entity': 'attack', 'data': {'sync_id': 'attack-1', 'character_sync_id': 'character-1', 'name': 'Longsword', 'sort_order': 0}},
+            {'entity': 'spell', 'data': {'sync_id': 'spell-1', 'character_sync_id': 'character-1', 'name': 'Fire Bolt', 'sort_order': 0}},
+            {'entity': 'ability', 'data': {'sync_id': 'ability-1', 'character_sync_id': 'character-1', 'name': 'Second Wind', 'sort_order': 0}},
+            {'entity': 'item', 'data': {'sync_id': 'item-1', 'character_sync_id': 'character-1', 'name': 'Potion', 'sort_order': 0}},
+            {'entity': 'custom_action', 'data': {'sync_id': 'custom-1', 'character_sync_id': 'character-1', 'name': 'Improvised', 'sort_order': 0}},
+        ]
+        _send_command(gm, 'loadout-snapshot', 'snapshot.publish', entities=snapshot)
+        assert _receive_until_ack(gm, 'loadout-snapshot')['payload']['event'] == 'ack'
+        _send_command(gm, 'loadout-request', 'character.loadout.request', character_sync_id='character-1')
+        ack = _receive_until_ack(gm, 'loadout-request')
+        loadout = ack['payload']['loadout']
+        assert {item['entity'] for item in loadout} == {'attack', 'spell', 'ability', 'item', 'custom_action'}
+        assert {item['data']['name'] for item in loadout} == {'Longsword', 'Fire Bolt', 'Second Wind', 'Potion', 'Improvised'}
+
+
+def test_character_loadout_publish_accepts_player_child_entities_and_gm_can_request_them() -> None:
+    hub = HubServer(campaign_id='campaign-1', campaign_name='Test Campaign', gm_name='GM', invite_token='token')
+    client = TestClient(build_app(hub, port=8765))
+    with client.websocket_connect('/ws?token=token&client_id=gm-1&campaign_id=campaign-1&role=gm&display_name=GM') as gm, \
+         client.websocket_connect('/ws?token=token&client_id=player-1&campaign_id=campaign-1&role=player&display_name=Player') as player:
+        assert gm.receive_json()['payload']['event'] == 'session.ready'
+        assert player.receive_json()['payload']['event'] == 'session.ready'
+        hub.state[('campaign_member', 'member-1')] = {
+            'sync_id': 'member-1', 'campaign_sync_id': 'campaign-1', 'client_id': 'player-1',
+            'role': 'player', 'linked_character_sync_id': 'character-1',
+        }
+        hub.state[('character', 'character-1')] = {
+            'sync_id': 'character-1', 'name': 'Mira', 'hp': 10, 'max_hp': 10,
+        }
+        entities = [
+            {'entity': 'attack', 'data': {'sync_id': 'attack-1', 'character_sync_id': 'character-1', 'name': 'Longsword'}},
+            {'entity': 'spell', 'data': {'sync_id': 'spell-1', 'character_sync_id': 'character-1', 'name': 'Fire Bolt'}},
+            {'entity': 'ability', 'data': {'sync_id': 'ability-1', 'character_sync_id': 'character-1', 'name': 'Second Wind'}},
+            {'entity': 'item', 'data': {'sync_id': 'item-1', 'character_sync_id': 'character-1', 'name': 'Potion'}},
+        ]
+        _send_command(player, 'loadout-publish', 'character.loadout.publish', character_sync_id='character-1', entities=entities)
+        ack = _receive_until_ack(player, 'loadout-publish')
+        assert ack['payload']['published'] == 4
+        _send_command(gm, 'loadout-request', 'character.loadout.request', character_sync_id='character-1')
+        loadout_ack = _receive_until_ack(gm, 'loadout-request')
+        names = {item['data']['name'] for item in loadout_ack['payload']['loadout']}
+        assert names == {'Longsword', 'Fire Bolt', 'Second Wind', 'Potion'}
+
+
+def test_character_loadout_request_pulls_fresh_loadout_from_online_player() -> None:
+    hub = HubServer(campaign_id='campaign-1', campaign_name='Test Campaign', gm_name='GM', invite_token='token')
+    client = TestClient(build_app(hub, port=8765))
+    with client.websocket_connect('/ws?token=token&client_id=gm-1&campaign_id=campaign-1&role=gm&display_name=GM') as gm, \
+         client.websocket_connect('/ws?token=token&client_id=player-1&campaign_id=campaign-1&role=player&display_name=Player') as player:
+        assert gm.receive_json()['payload']['event'] == 'session.ready'
+        assert player.receive_json()['payload']['event'] == 'session.ready'
+        hub.state[('campaign_member', 'member-1')] = {
+            'sync_id': 'member-1', 'campaign_sync_id': 'campaign-1', 'client_id': 'player-1',
+            'role': 'player', 'linked_character_sync_id': 'character-1',
+        }
+        hub.state[('character', 'character-1')] = {
+            'sync_id': 'character-1', 'name': 'Mira', 'hp': 10, 'max_hp': 10,
+        }
+
+        _send_command(gm, 'loadout-request', 'character.loadout.request', character_sync_id='character-1')
+        ack = _receive_until_ack(gm, 'loadout-request')
+        assert ack['payload']['loadout'] == []
+
+        pull = player.receive_json()
+        assert pull['payload']['event'] == 'character.loadout.pull'
+        assert pull['payload']['character_sync_id'] == 'character-1'
+
+
+def test_character_loadout_publish_replaces_stale_actions() -> None:
+    hub = HubServer(campaign_id='campaign-1', campaign_name='Test Campaign', gm_name='GM', invite_token='token')
+    client = TestClient(build_app(hub, port=8765))
+    with client.websocket_connect('/ws?token=token&client_id=player-1&campaign_id=campaign-1&role=player&display_name=Player') as player:
+        assert player.receive_json()['payload']['event'] == 'session.ready'
+        hub.state[('campaign_member', 'member-1')] = {
+            'sync_id': 'member-1', 'campaign_sync_id': 'campaign-1', 'client_id': 'player-1',
+            'role': 'player', 'linked_character_sync_id': 'character-1',
+        }
+        hub.state[('character', 'character-1')] = {'sync_id': 'character-1', 'name': 'Mira'}
+        hub.state[('attack', 'old-attack')] = {'sync_id': 'old-attack', 'character_sync_id': 'character-1', 'name': 'Old'}
+        _send_command(
+            player,
+            'loadout-publish-2',
+            'character.loadout.publish',
+            character_sync_id='character-1',
+            entities=[{'entity': 'attack', 'data': {'sync_id': 'new-attack', 'character_sync_id': 'character-1', 'name': 'New'}}],
+        )
+        assert _receive_until_ack(player, 'loadout-publish-2')['payload']['published'] == 1
+        assert ('attack', 'old-attack') not in hub.state
+        assert hub.state[('attack', 'new-attack')]['name'] == 'New'
+
+
+def test_player_can_unlink_own_character_without_leaving_campaign() -> None:
+    hub = HubServer(
+        campaign_id="campaign-1",
+        campaign_name="Test Campaign",
+        gm_name="GM",
+        invite_token="token",
+    )
+    hub.state[("campaign_member", "member-1")] = {
+        "sync_id": "member-1",
+        "campaign_sync_id": "campaign-1",
+        "name": "Alice",
+        "role": "player",
+        "client_id": "player-1",
+        "linked_character_sync_id": "character-1",
+        "created_at": "2026-09-19T00:00:00Z",
+    }
+    hub.state[("character", "character-1")] = {
+        "sync_id": "character-1",
+        "name": "Rogue",
+        "level": 5,
+        "hp": 30,
+        "max_hp": 42,
+    }
+    hub.state[("attack", "attack-1")] = {
+        "sync_id": "attack-1",
+        "character_sync_id": "character-1",
+        "name": "Dagger",
+    }
+
+    client = TestClient(build_app(hub, port=8765))
+    with client.websocket_connect(
+        "/ws?token=token&client_id=player-1&campaign_id=campaign-1&role=player&display_name=Alice"
+    ) as ws:
+        assert ws.receive_json()["payload"]["event"] == "session.ready"
+        snapshot = ws.receive_json()
+        assert snapshot["payload"]["event"] == "state.snapshot"
+
+        ws.send_json(
+            {
+                "protocol": PROTOCOL,
+                "type": "command",
+                "id": "unlink-1",
+                "client_id": "player-1",
+                "campaign_id": "campaign-1",
+                "payload": {
+                    "command": "member.unlink_character",
+                    "member_sync_id": "member-1",
+                },
+            }
+        )
+
+        member_update = ws.receive_json()
+        assert member_update["payload"]["event"] == "state.upsert"
+        assert member_update["payload"]["entity"] == "campaign_member"
+        assert member_update["payload"]["data"]["linked_character_sync_id"] is None
+
+        ack = ws.receive_json()
+        assert ack["payload"]["event"] == "ack"
+        assert ack["payload"]["unlinked"] is True
+
+    assert hub.state[("campaign_member", "member-1")]["linked_character_sync_id"] is None
+    assert ("character", "character-1") not in hub.state
+    assert ("attack", "attack-1") not in hub.state

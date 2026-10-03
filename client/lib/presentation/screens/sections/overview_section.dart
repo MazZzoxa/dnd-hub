@@ -6,9 +6,11 @@ import '../../widgets/character_avatar.dart';
 import '../../../data/constants/dnd_data.dart';
 import '../../../data/models/attack_model.dart';
 import '../../../data/models/character_model.dart';
+import '../../../data/models/character_condition_model.dart';
 import '../../../domain/providers/attack_provider.dart';
 import '../../../domain/providers/character_provider.dart';
 import '../../../domain/providers/xp_provider.dart';
+import '../../../domain/providers/gameplay_state_provider.dart';
 import '../../../domain/xp/xp_service.dart';
 import '../../widgets/xp_progress_card.dart';
 import '../../widgets/xp_history_sheet.dart';
@@ -36,6 +38,10 @@ class _OverviewSectionState extends State<OverviewSection> {
       _loadedForCharacterId = characterId;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         context.read<AttackProvider>().loadForCharacter(characterId);
+        final selected = context.read<CharacterProvider>().selected;
+        if (selected?.id == characterId && selected != null) {
+          context.read<GameplayStateProvider>().loadCharacter(characterId, selected.syncId);
+        }
       });
     }
 
@@ -45,6 +51,8 @@ class _OverviewSectionState extends State<OverviewSection> {
         if (character == null) {
           return const Center(child: Text('Персонаж не выбран'));
         }
+        final gameplay = context.watch<GameplayStateProvider>();
+        final conditions = gameplay.conditionsFor(character.syncId);
         final perceptionSkill =
             kSkills.firstWhere((s) => s.key == kPerceptionSkillKey);
         final perceptionMod = character.skillMod(perceptionSkill.key, perceptionSkill.ability);
@@ -116,8 +124,7 @@ class _OverviewSectionState extends State<OverviewSection> {
               label: 'Хиты',
               icon: Icons.favorite,
               accentColor: AppTheme.danger,
-              valueText:
-                  '${character.hp} / ${character.maxHp}${character.temporaryHp > 0 ? '  (+${character.temporaryHp} temp)' : ''}',
+              valueText: '${character.hp} / ${character.maxHp}',
               step: 1,
               onAdjust: (delta) => provider.adjustHp(delta),
               onTapValue: () => _showAdjustDialog(
@@ -128,7 +135,32 @@ class _OverviewSectionState extends State<OverviewSection> {
                     provider.updateCharacter(character.copyWith(hp: value)),
               ),
             ),
-            if (character.hp == 0) ...[
+            const SizedBox(height: 10),
+            QuickAdjustCard(
+              label: 'Временные хиты',
+              icon: Icons.shield_outlined,
+              accentColor: AppTheme.primary,
+              valueText: '${character.temporaryHp}',
+              step: 1,
+              onAdjust: (delta) => provider.setTemporaryHp(
+                character.temporaryHp + delta,
+              ),
+              onTapValue: () => _showAdjustDialog(
+                context,
+                title: 'Изменить временные хиты',
+                initial: character.temporaryHp,
+                onSubmit: provider.setTemporaryHp,
+              ),
+            ),
+            if (character.lifeState != CharacterLifeState.normal || conditions.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              _GameplayStateCard(
+                character: character,
+                conditions: conditions,
+                onConditionTap: (condition) => _showConditionDetails(context, condition),
+              ),
+            ],
+            if (character.lifeState == CharacterLifeState.downed) ...[
               const SizedBox(height: 10),
               _DeathSavesCard(character: character, provider: provider),
             ],
@@ -232,6 +264,33 @@ class _OverviewSectionState extends State<OverviewSection> {
           ],
         );
       },
+    );
+  }
+
+  Future<void> _showConditionDetails(
+    BuildContext context,
+    CharacterConditionModel condition,
+  ) async {
+    final source = condition.sourceLabel.isNotEmpty ? condition.sourceLabel : condition.sourceCharacterSyncId;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(condition.name),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (source.isNotEmpty) Text('Источник: $source'),
+            if (source.isNotEmpty) const SizedBox(height: 8),
+            if (condition.durationRounds > 0) Text('Осталось: ${condition.remainingRounds} раунд${condition.remainingRounds == 1 ? '' : 'а'}'),
+            if (condition.durationRounds > 0) const SizedBox(height: 8),
+            Text(condition.description.isEmpty ? 'Описание отсутствует.' : condition.description),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Закрыть')),
+        ],
+      ),
     );
   }
 
@@ -413,6 +472,87 @@ class _HitDiceBox extends StatelessWidget {
                 style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _GameplayStateCard extends StatelessWidget {
+  final CharacterModel character;
+  final List<CharacterConditionModel> conditions;
+  final ValueChanged<CharacterConditionModel> onConditionTap;
+
+  const _GameplayStateCard({
+    required this.character,
+    required this.conditions,
+    required this.onConditionTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // Пока персонаж жив и у него нет активных условий, игровой статус
+    // не занимает место на листе. Это также убирает длинный
+    // "Нормальное состояние" Chip с узких экранов Android.
+    final hasLifeState = character.lifeState != CharacterLifeState.normal;
+    if (!hasLifeState && conditions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.health_and_safety_outlined, size: 19),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Игровое состояние',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              if (hasLifeState) ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Chip(
+                    label: Text(character.lifeState.label),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (conditions.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            const Text(
+              'Состояния',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final condition in conditions)
+                  ActionChip(
+                    label: Text(condition.name),
+                    onPressed: () => onConditionTap(condition),
+                  ),
+              ],
+            ),
+          ] else ...[
+            const SizedBox(height: 6),
+            const Text(
+              'Активных состояний нет.',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+            ),
+          ],
+        ],
       ),
     );
   }

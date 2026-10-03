@@ -1,5 +1,23 @@
 import 'dart:convert';
 
+enum CharacterLifeState { normal, downed, dead }
+
+extension CharacterLifeStateX on CharacterLifeState {
+  String get dbValue => name;
+
+  static CharacterLifeState fromDb(String? value) => switch (value) {
+        'downed' => CharacterLifeState.downed,
+        'dead' => CharacterLifeState.dead,
+        _ => CharacterLifeState.normal,
+      };
+
+  String get label => switch (this) {
+        CharacterLifeState.normal => 'Нормальное состояние',
+        CharacterLifeState.downed => 'Нокаутирован',
+        CharacterLifeState.dead => 'Мёртв',
+      };
+}
+
 /// Внутренняя модель персонажа D&D Hub.
 /// Не зависит от формата внешнего источника или любого другого внешнего источника —
 /// см. принцип №6 в документе проекта (docs/D_D_Hub.md, п.22).
@@ -37,6 +55,7 @@ class CharacterModel {
   final String hitDice; // напр. "20к10"
   final int deathSaveSuccesses; // 0..3
   final int deathSaveFailures; // 0..3
+  final CharacterLifeState lifeState;
 
   // Proficiencies (хранятся как множества ключей: str/dex/.../навыки)
   final Set<String> savingThrowProficiencies;
@@ -101,6 +120,7 @@ class CharacterModel {
     this.hitDice = '',
     this.deathSaveSuccesses = 0,
     this.deathSaveFailures = 0,
+    this.lifeState = CharacterLifeState.normal,
     this.savingThrowProficiencies = const {},
     this.skillProficiencies = const {},
     this.xp = 0,
@@ -215,6 +235,7 @@ class CharacterModel {
     String? hitDice,
     int? deathSaveSuccesses,
     int? deathSaveFailures,
+    CharacterLifeState? lifeState,
     Set<String>? savingThrowProficiencies,
     Set<String>? skillProficiencies,
     int? xp,
@@ -269,6 +290,7 @@ class CharacterModel {
       hitDice: hitDice ?? this.hitDice,
       deathSaveSuccesses: deathSaveSuccesses ?? this.deathSaveSuccesses,
       deathSaveFailures: deathSaveFailures ?? this.deathSaveFailures,
+      lifeState: lifeState ?? this.lifeState,
       savingThrowProficiencies: savingThrowProficiencies ?? this.savingThrowProficiencies,
       skillProficiencies: skillProficiencies ?? this.skillProficiencies,
       xp: xp ?? this.xp,
@@ -326,6 +348,7 @@ class CharacterModel {
       'hit_dice': hitDice,
       'death_save_successes': deathSaveSuccesses,
       'death_save_failures': deathSaveFailures,
+      'life_state': lifeState.dbValue,
       'saving_throw_proficiencies': jsonEncode(savingThrowProficiencies.toList()),
       'skill_proficiencies': jsonEncode(skillProficiencies.toList()),
       'xp': xp,
@@ -393,6 +416,7 @@ class CharacterModel {
       hitDice: map['hit_dice'] as String? ?? '',
       deathSaveSuccesses: map['death_save_successes'] as int? ?? 0,
       deathSaveFailures: map['death_save_failures'] as int? ?? 0,
+      lifeState: CharacterLifeStateX.fromDb(map['life_state']?.toString()),
       savingThrowProficiencies: _decodeStringSet(map['saving_throw_proficiencies']),
       skillProficiencies: _decodeStringSet(map['skill_proficiencies']),
       xp: map['xp'] as int? ?? 0,

@@ -6,11 +6,17 @@ import '../../data/models/battle_action_request_model.dart';
 import '../../data/models/campaign_member_model.dart';
 import '../../data/models/character_model.dart';
 import '../../data/models/session_model.dart';
+import '../../data/repositories/ability_repository.dart';
+import '../../data/repositories/attack_repository.dart';
+import '../../data/repositories/inventory_repository.dart';
+import '../../data/repositories/spell_repository.dart';
 import '../../domain/battle/dice_service.dart';
 import '../../domain/providers/battle_provider.dart';
 import '../../domain/providers/campaign_provider.dart';
 import '../../domain/providers/character_provider.dart';
 import '../../domain/providers/session_provider.dart';
+import '../../domain/providers/gameplay_state_provider.dart';
+import '../../network/services/sync_service.dart';
 import '../widgets/battle_character_card.dart';
 import '../widgets/battle_toolbar.dart';
 import '../widgets/battle_workspace_widgets.dart';
@@ -33,6 +39,11 @@ class PlayerBattleScreen extends StatefulWidget {
 
 class _PlayerBattleScreenState extends State<PlayerBattleScreen> {
   final DiceService _dice = DiceService();
+  final _attackRepository = AttackRepository();
+  final _spellRepository = SpellRepository();
+  final _abilityRepository = AbilityRepository();
+  final _inventoryRepository = InventoryRepository();
+  bool _loadoutSyncInFlight = false;
 
   @override
   void initState() {
@@ -61,6 +72,7 @@ class _PlayerBattleScreenState extends State<PlayerBattleScreen> {
 
     final session = _findSession(sessionProvider.sessions, widget.sessionId);
     final ownCharacter = _ownCharacter(membership, characters);
+    _scheduleLoadoutSync(ownCharacter);
 
     return Scaffold(
       appBar: AppBar(
@@ -102,6 +114,25 @@ class _PlayerBattleScreenState extends State<PlayerBattleScreen> {
       if (character.id == id) return character;
     }
     return null;
+  }
+
+  void _scheduleLoadoutSync(CharacterModel? character) {
+    if (_loadoutSyncInFlight || character?.id == null) return;
+    final sync = context.read<SyncService>();
+    if (!sync.connected || sync.role != 'player') return;
+
+    _loadoutSyncInFlight = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        if (mounted && character?.id != null) {
+          await sync.publishCharacterLoadout(character!);
+        }
+      } catch (_) {
+        // Loadout synchronization is best-effort and must not block Battle Mode.
+      } finally {
+        _loadoutSyncInFlight = false;
+      }
+    });
   }
 
   Widget _inactiveBody(SessionModel? session) {
@@ -203,18 +234,30 @@ class _PlayerBattleScreenState extends State<PlayerBattleScreen> {
           if (latestRequest != null)
             _requestStatusCard(latestRequest),
           const SizedBox(height: 10),
-          BattleCharacterCard.fromCharacter(
-            character: ownCharacter,
-            canEdit: false,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => BattleCharacterViewScreen(
-                  character: ownCharacter,
-                  canAct: ownTurn,
+          Builder(
+            builder: (context) {
+              final gameplay = context.watch<GameplayStateProvider>();
+              return BattleCharacterCard(
+                name: ownCharacter.name,
+                hp: ownCharacter.hp,
+                maxHp: ownCharacter.maxHp,
+                temporaryHp: ownCharacter.temporaryHp,
+                armorClass: ownCharacter.armorClass,
+                initiative: ownCharacter.initiative,
+                lifeState: ownCharacter.lifeState,
+                conditions: gameplay.conditionsFor(ownCharacter.syncId),
+                canEdit: false,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => BattleCharacterViewScreen(
+                      character: ownCharacter,
+                      canAct: ownTurn,
+                    ),
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
           const SizedBox(height: 8),
           FilledButton.icon(

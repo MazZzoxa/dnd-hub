@@ -20,6 +20,7 @@ class CampaignProvider extends ChangeNotifier {
   List<CampaignMemberModel> _members = [];
   CampaignModel? _selected;
   bool _loading = false;
+  Set<int> _playerLinkedCharacterIds = <int>{};
 
   CampaignProvider({CampaignService? service, SyncService? syncService, ConnectionManager? connectionManager})
       : _service = service ?? CampaignService(),
@@ -58,6 +59,12 @@ class CampaignProvider extends ChangeNotifier {
 
   List<CampaignModel> get ownedCampaigns => List.unmodifiable(_ownedCampaigns);
   List<CampaignModel> get joinedCampaigns => List.unmodifiable(_joinedCampaigns);
+
+  /// Персонажи игроков, привязанные к кампаниям, которыми управляет текущий ГМ.
+  /// Они остаются в локальной БД и доступны в GM/Battle интерфейсе, но не
+  /// должны отображаться как отдельные локальные персонажи на главном экране.
+  Set<int> get playerLinkedCharacterIds =>
+      Set.unmodifiable(_playerLinkedCharacterIds);
 
   Future<void> loadCampaigns() async {
     _loading = true;
@@ -116,7 +123,11 @@ class CampaignProvider extends ChangeNotifier {
   Future<void> _rebuildCategories() async {
     _ownedCampaigns = [];
     _joinedCampaigns = [];
-    if (localClientId.isEmpty) return;
+    if (localClientId.isEmpty) {
+      _playerLinkedCharacterIds = <int>{};
+      return;
+    }
+
     for (final campaign in _campaigns) {
       final member = campaign.id == null
           ? null
@@ -127,6 +138,9 @@ class CampaignProvider extends ChangeNotifier {
         _joinedCampaigns.add(campaign);
       }
     }
+
+    _playerLinkedCharacterIds =
+        await _service.getPlayerLinkedCharacterIdsForGm(localClientId);
   }
 
   Future<void> selectCampaign(CampaignModel campaign) async {
@@ -198,6 +212,25 @@ class CampaignProvider extends ChangeNotifier {
     await _publishSelectedSnapshot();
   }
 
+  Future<void> unlinkOwnCharacter() async {
+    final campaign = _selected;
+    final member = currentMembership;
+    if (campaign?.id == null || member == null || member.role != CampaignRole.player) {
+      throw StateError('Нет подключённого игрока для отвязки персонажа.');
+    }
+    if (member.linkedCharacterId == null) {
+      return;
+    }
+
+    if (_syncService?.connected == true) {
+      await _syncService!.unlinkOwnCharacter(member: member);
+    } else {
+      throw StateError('Для отвязки персонажа требуется подключение к LAN-кампании.');
+    }
+
+    await _reloadMembers();
+  }
+
   Future<void> leaveCurrentCampaign() async {
     final campaign = _selected;
     final member = currentMembership;
@@ -244,6 +277,8 @@ class CampaignProvider extends ChangeNotifier {
     if (_selected != null) {
       _selected = await _service.getById(id) ?? _selected;
     }
+    _playerLinkedCharacterIds =
+        await _service.getPlayerLinkedCharacterIdsForGm(localClientId);
     notifyListeners();
   }
 

@@ -47,6 +47,26 @@ class CampaignRepository {
     ''', [characterId]);
   }
 
+  Future<Set<int>> getPlayerLinkedCharacterIdsForGm(String clientId) async {
+    if (clientId.trim().isEmpty) return <int>{};
+    final db = await _database.database;
+    final rows = await db.rawQuery('''
+      SELECT DISTINCT player.linked_character_id AS character_id
+      FROM campaign_members player
+      JOIN campaign_members gm
+        ON gm.campaign_id = player.campaign_id
+       AND gm.client_id = ?
+       AND gm.role = 'gm'
+      WHERE player.role = 'player'
+        AND player.linked_character_id IS NOT NULL
+    ''', [clientId]);
+
+    return rows
+        .map((row) => row['character_id'])
+        .whereType<int>()
+        .toSet();
+  }
+
   Future<int> create(CampaignModel campaign, CampaignMemberModel gm) async {
     final db = await _database.database;
     return db.transaction((txn) async {

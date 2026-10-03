@@ -62,6 +62,11 @@ class SessionHistoryEntryModel {
       'damage_applied' => 'Применён урон',
       'healing_applied' => 'Применено лечение',
       'temporary_hp_applied' => 'Изменены временные хиты',
+      'condition_applied' => 'Наложено состояние',
+      'condition_removed' => 'Снято состояние',
+      'downed' => 'Персонаж нокаутирован',
+      'death' => 'Персонаж погиб',
+      'revived' => 'Персонаж возвращён к жизни',
       _ => 'Событие боя',
     };
     final details = entry.targetLabel.isNotEmpty

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/battle_projection_model.dart';
 import '../../data/models/character_model.dart';
+import '../../data/models/character_condition_model.dart';
 
 class BattleCharacterCard extends StatelessWidget {
   final String name;
@@ -11,6 +12,9 @@ class BattleCharacterCard extends StatelessWidget {
   final int temporaryHp;
   final int armorClass;
   final int initiative;
+  final CharacterLifeState lifeState;
+  final List<CharacterConditionModel> conditions;
+  final List<String> conditionNames;
   final bool canEdit;
   final VoidCallback? onTap;
   final VoidCallback? onDamage;
@@ -25,6 +29,9 @@ class BattleCharacterCard extends StatelessWidget {
     required this.temporaryHp,
     required this.armorClass,
     this.initiative = 0,
+    this.lifeState = CharacterLifeState.normal,
+    this.conditions = const [],
+    this.conditionNames = const [],
     required this.canEdit,
     this.onTap,
     this.onDamage,
@@ -49,6 +56,8 @@ class BattleCharacterCard extends StatelessWidget {
         temporaryHp: character.temporaryHp,
         armorClass: character.armorClass,
         initiative: character.initiative,
+        lifeState: character.lifeState,
+        conditions: const [],
         canEdit: canEdit,
         onTap: onTap,
         onDamage: onDamage,
@@ -73,6 +82,8 @@ class BattleCharacterCard extends StatelessWidget {
         temporaryHp: projection.temporaryHp,
         armorClass: projection.armorClass,
         initiative: projection.initiative,
+        lifeState: projection.lifeState,
+        conditionNames: projection.conditions,
         canEdit: canEdit,
         onTap: onTap,
         onDamage: onDamage,
@@ -133,6 +144,45 @@ class BattleCharacterCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 14),
+            if (lifeState != CharacterLifeState.normal ||
+                conditions.isNotEmpty ||
+                conditionNames.isNotEmpty) ...[
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  if (lifeState != CharacterLifeState.normal)
+                    Chip(
+                      avatar: Icon(
+                        lifeState == CharacterLifeState.dead
+                            ? Icons.close
+                            : Icons.favorite_border,
+                        size: 18,
+                      ),
+                      label: Text(lifeState.label),
+                    ),
+                  if (lifeState == CharacterLifeState.downed)
+                    const Chip(label: Text('Death Saves')),
+                  for (final condition in conditions)
+                    Chip(
+                      avatar: const Icon(
+                        Icons.local_fire_department_outlined,
+                        size: 16,
+                      ),
+                      label: Text(condition.name),
+                    ),
+                  for (final condition in conditionNames)
+                    Chip(
+                      avatar: const Icon(
+                        Icons.local_fire_department_outlined,
+                        size: 16,
+                      ),
+                      label: Text(condition),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+            ],
             Row(
               children: [
                 const Text('Хиты'),

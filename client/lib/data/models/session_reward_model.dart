@@ -5,6 +5,7 @@ class SessionRewardModel {
   final String characterSyncId;
   final String type;
   final int amount;
+  final String currency;
   final String reason;
   final int levelBefore;
   final int levelAfter;
@@ -18,6 +19,7 @@ class SessionRewardModel {
     required this.characterSyncId,
     this.type = 'xp',
     required this.amount,
+    this.currency = '',
     this.reason = '',
     this.levelBefore = 1,
     this.levelAfter = 1,
@@ -32,6 +34,7 @@ class SessionRewardModel {
         'character_sync_id': characterSyncId,
         'type': type,
         'amount': amount,
+        'currency': currency,
         'reason': reason,
         'level_before': levelBefore,
         'level_after': levelAfter,
@@ -46,6 +49,7 @@ class SessionRewardModel {
         characterSyncId: map['character_sync_id']?.toString() ?? '',
         type: map['type']?.toString() ?? 'xp',
         amount: (map['amount'] as num?)?.toInt() ?? 0,
+        currency: map['currency']?.toString() ?? '',
         reason: map['reason']?.toString() ?? '',
         levelBefore: (map['level_before'] as num?)?.toInt() ?? 1,
         levelAfter: (map['level_after'] as num?)?.toInt() ?? 1,

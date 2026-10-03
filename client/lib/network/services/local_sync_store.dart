@@ -32,6 +32,8 @@ class LocalSyncStore {
     'session_event',
     'session_reward',
     'session_loot',
+    'custom_action',
+    'character_condition',
   };
 
   String _requireSyncId(Map<String, dynamic> data) {
@@ -106,6 +108,32 @@ class LocalSyncStore {
     final syncId = rows.first['sync_id']?.toString() ?? '';
     if (syncId.isEmpty) throw StateError('Session $sessionId has no sync_id.');
     return syncId;
+  }
+
+  Future<Map<String, dynamic>?> findLinkedCharacterForClient({
+    required String campaignSyncId,
+    required String clientId,
+  }) async {
+    final campaignId = await _localIdBySync(
+      await _database.database,
+      'campaigns',
+      campaignSyncId.trim(),
+    );
+    if (campaignId == null || clientId.trim().isEmpty) return null;
+    final db = await _database.database;
+    final rows = await db.rawQuery(
+      '''
+      SELECT ch.*
+      FROM campaign_members m
+      JOIN characters ch ON ch.id = m.linked_character_id
+      WHERE m.campaign_id = ? AND m.client_id = ? AND m.role = 'player'
+        AND m.linked_character_id IS NOT NULL
+      LIMIT 1
+      ''',
+      [campaignId, clientId.trim()],
+    );
+    if (rows.isEmpty) return null;
+    return Map<String, dynamic>.from(rows.first);
   }
 
   Future<String> _campaignSyncId(int campaignId) async {
@@ -199,6 +227,16 @@ class LocalSyncStore {
         if (campaign == null) throw StateError('$entity references an unknown battle.');
         data['battle_sync_id'] = battleSyncId;
         break;
+      case 'custom_action':
+        final characterId = (data.remove('character_id') as num?)?.toInt();
+        if (characterId == null) throw StateError('custom_action has no character_id.');
+        data['character_sync_id'] = await _characterSyncId(characterId);
+        break;
+      case 'character_condition':
+        final characterSyncId = data['character_sync_id']?.toString().trim() ?? '';
+        if (characterSyncId.isEmpty) throw StateError('character_condition has no character_sync_id.');
+        data.remove('character_id');
+        break;
       case 'item':
       case 'spell':
       case 'ability':
@@ -273,6 +311,8 @@ class LocalSyncStore {
         );
         return rows.isNotEmpty;
       case 'character':
+      case 'custom_action':
+      case 'character_condition':
       case 'item':
       case 'spell':
       case 'ability':
@@ -472,6 +512,8 @@ class LocalSyncStore {
     await appendCharacterChildren('notes', 'note', orderBy: 'created_at, id');
     await appendCharacterChildren('spell_slots', 'spell_slot', orderBy: 'level');
     await appendCharacterChildren('xp_transactions', 'xp_transaction', orderBy: 'created_at, id');
+    await appendCharacterChildren('custom_actions', 'custom_action', orderBy: 'sort_order, id');
+    await appendCharacterChildren('character_conditions', 'character_condition', orderBy: 'created_at, id');
 
     result.removeWhere((item) {
       final data = item['data'];
@@ -511,7 +553,9 @@ class LocalSyncStore {
       return switch (item['entity']?.toString() ?? '') {
         'campaign' => 0,
         'character' => 1,
-        'campaign_member' => 2,
+        'custom_action' => 2,
+        'character_condition' => 2,
+        'campaign_member' => 3,
         'session' => 2,
         'session_note' => 3,
         'session_event' => 4,
@@ -650,6 +694,8 @@ class LocalSyncStore {
         ('notes', 'note'),
         ('spell_slots', 'spell_slot'),
         ('xp_transactions', 'xp_transaction'),
+        ('custom_actions', 'custom_action'),
+        ('character_conditions', 'character_condition'),
       ]) {
         final syncIds = present[spec.$2] ?? const <String>{};
         final charPlaceholders = List.filled(characterIds.length, '?').join(',');
@@ -768,6 +814,30 @@ class LocalSyncStore {
         if (metadata is Map) {
           data['metadata'] = jsonEncode(metadata);
         }
+        await _upsert(db, _tableFor(entity), data);
+        return;
+      case 'custom_action':
+        final characterId = await _localIdBySync(
+          db,
+          'characters',
+          data.remove('character_sync_id')?.toString(),
+        );
+        if (characterId == null) return;
+        data['character_id'] = characterId;
+        await _upsert(db, _tableFor(entity), data);
+        return;
+      case 'character_condition':
+        final characterSyncId = data['character_sync_id']?.toString().trim() ?? '';
+        if (characterSyncId.isEmpty) return;
+        final characterId = await _localIdBySync(
+          db,
+          'characters',
+          characterSyncId,
+        );
+        if (characterId == null) return;
+        data['character_id'] = characterId;
+        final metadata = data['metadata'];
+        if (metadata is Map) data['metadata'] = jsonEncode(metadata);
         await _upsert(db, _tableFor(entity), data);
         return;
       case 'item':
@@ -965,6 +1035,8 @@ class LocalSyncStore {
         'note' => 'notes',
         'spell_slot' => 'spell_slots',
         'xp_transaction' => 'xp_transactions',
+        'custom_action' => 'custom_actions',
+        'character_condition' => 'character_conditions',
         _ => throw ArgumentError('Unknown sync entity: $entity'),
       };
 }

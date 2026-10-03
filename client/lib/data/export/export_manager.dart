@@ -10,6 +10,15 @@ import '../models/item_model.dart';
 import '../models/spell_model.dart';
 import '../models/ability_model.dart';
 import '../models/library_item_model.dart';
+import '../models/note_model.dart';
+import '../models/attack_model.dart';
+import '../models/spell_slot_model.dart';
+import '../models/campaign_model.dart';
+import '../models/campaign_member_model.dart';
+import '../models/session_model.dart';
+import '../models/xp_transaction_model.dart';
+import '../models/custom_action_model.dart';
+import '../models/character_condition_model.dart';
 
 /// Создаёт переносимые JSON-структуры D&D Hub.
 ///
@@ -17,7 +26,7 @@ import '../models/library_item_model.dart';
 /// Благодаря этому файл остаётся читаемым человеком, легко валидируется и
 /// в будущем может быть использован тем же ImportManager.
 class ExportManager {
-  static const int formatVersion = 2;
+  static const int formatVersion = 4;
   static const String schema = 'dnd-hub';
 
   final DatabaseHelper _db = DatabaseHelper.instance;
@@ -36,6 +45,8 @@ class ExportManager {
     final attackRows = await db.query('attacks', where: 'character_id = ?', whereArgs: [id], orderBy: 'sort_order, id');
     final slotRows = await db.query('spell_slots', where: 'character_id = ?', whereArgs: [id], orderBy: 'level');
     final noteRows = await db.query('notes', where: 'character_id = ?', whereArgs: [id], orderBy: 'created_at DESC');
+    final customActionRows = await db.query('custom_actions', where: 'character_id = ?', whereArgs: [id], orderBy: 'sort_order, id');
+    final conditionRows = await db.query('character_conditions', where: 'character_id = ?', whereArgs: [id], orderBy: 'created_at DESC, id DESC');
 
     final items = itemRows.map(ItemModel.fromMap).toList();
     final spells = spellRows.map(SpellModel.fromMap).toList();
@@ -73,6 +84,8 @@ class ExportManager {
       'attacks': attackRows.map(_cleanDbMap).toList(),
       'spellSlots': slotRows.map(_cleanDbMap).toList(),
       'notes': noteRows.map(_cleanDbMap).toList(),
+      'customActions': customActionRows.map(_cleanDbMap).toList(),
+      'conditions': conditionRows.map(_cleanDbMap).toList(),
       'xpHistory': (await db.query('xp_transactions', where: 'character_id = ?', whereArgs: [id], orderBy: 'created_at DESC, id DESC')).map(_cleanDbMap).toList(),
       'libraryItems': libraryItems.map(_libraryMap).toList(),
     };
@@ -108,19 +121,77 @@ class ExportManager {
   Future<String?> exportBackup() async {
     final db = await _db.database;
 
+    // Сериализуем через актуальные модели, а не напрямую через SQLite-строки.
+    // Это не позволяет историческим/устаревшим колонкам из старой локальной
+    // базы попасть в новый backup. Например, старые desktop-базы могли
+    // содержать portrait_path, ability_generation_method или conditions.
     final tables = <String, List<Map<String, dynamic>>>{
-      'characters': await db.query('characters', orderBy: 'id'),
-      'libraryItems': await db.query('library_items', orderBy: 'id'),
-      'items': await db.query('items', orderBy: 'id'),
-      'spells': await db.query('spells', orderBy: 'id'),
-      'abilities': await db.query('abilities', orderBy: 'id'),
-      'notes': await db.query('notes', orderBy: 'id'),
-      'attacks': await db.query('attacks', orderBy: 'id'),
-      'spellSlots': await db.query('spell_slots', orderBy: 'character_id, level'),
-      'campaigns': await db.query('campaigns', orderBy: 'id'),
-      'campaignMembers': await db.query('campaign_members', orderBy: 'id'),
-      'campaignSessions': await db.query('campaign_sessions', orderBy: 'id'),
-      'xpTransactions': await db.query('xp_transactions', orderBy: 'character_id, created_at, id'),
+      'characters': (await db.query('characters', orderBy: 'id'))
+          .map(CharacterModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      'libraryItems': (await db.query('library_items', orderBy: 'id'))
+          .map(LibraryItemModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      'items': (await db.query('items', orderBy: 'id'))
+          .map(ItemModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      'spells': (await db.query('spells', orderBy: 'id'))
+          .map(SpellModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      'abilities': (await db.query('abilities', orderBy: 'id'))
+          .map(AbilityModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      'notes': (await db.query('notes', orderBy: 'id'))
+          .map(NoteModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      'attacks': (await db.query('attacks', orderBy: 'id'))
+          .map(AttackModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      'spellSlots': (await db.query('spell_slots', orderBy: 'character_id, level'))
+          .map(SpellSlotModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      'campaigns': (await db.query('campaigns', orderBy: 'id'))
+          .map(CampaignModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      'campaignMembers': (await db.query('campaign_members', orderBy: 'id'))
+          .map(CampaignMemberModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      'campaignSessions': (await db.query('campaign_sessions', orderBy: 'id'))
+          .map(SessionModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      'xpTransactions': (await db.query('xp_transactions', orderBy: 'character_id, created_at, id'))
+          .map(XpTransactionModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      'customActions': (await db.query('custom_actions', orderBy: 'character_id, sort_order, id'))
+          .map(CustomActionModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      'characterConditions': (await db.query('character_conditions', orderBy: 'character_id, created_at, id'))
+          .map(CharacterConditionModel.fromMap)
+          .map((model) => model.toMap())
+          .toList(),
+      // v1.0 Gameplay State data.
+      'sessionNotes': await db.query('session_notes', orderBy: 'session_id, created_at, id'),
+      'sessionEvents': await db.query('session_events', orderBy: 'session_id, created_at, id'),
+      'sessionRewards': await db.query('session_rewards', orderBy: 'session_id, created_at, id'),
+      'sessionLoot': await db.query('session_loot', orderBy: 'session_id, created_at, id'),
+      // v0.6+ Battle Workspace data.
+      'battles': await db.query('battles', orderBy: 'id'),
+      'battleTurns': await db.query('battle_turns', orderBy: 'battle_sync_id, sequence, id'),
+      'battleActionRequests': await db.query('battle_action_requests', orderBy: 'battle_sync_id, created_at, id'),
+      'battleLogEntries': await db.query('battle_log_entries', orderBy: 'battle_sync_id, created_at, id'),
     };
 
     final payload = <String, dynamic>{
@@ -128,7 +199,7 @@ class ExportManager {
       'formatVersion': formatVersion,
       'exportType': 'backup',
       'exportedAt': DateTime.now().toUtc().toIso8601String(),
-      'databaseVersion': 8,
+      'databaseVersion': 16,
       'sections': [
         'characters',
         'libraryItems',
@@ -142,6 +213,16 @@ class ExportManager {
         'campaignMembers',
         'campaignSessions',
         'xpTransactions',
+        'customActions',
+        'characterConditions',
+        'sessionNotes',
+        'sessionEvents',
+        'sessionRewards',
+        'sessionLoot',
+        'battles',
+        'battleTurns',
+        'battleActionRequests',
+        'battleLogEntries',
       ],
       'data': tables,
     };

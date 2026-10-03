@@ -261,6 +261,74 @@ def private_ipv4() -> str:
     return candidates[0] if candidates else "127.0.0.1"
 
 
+def _parent_process_alive(parent_pid: int) -> bool:
+    """Check whether the Flutter parent process is still running.
+
+    Windows does not support using ``os.kill(pid, 0)`` as a harmless
+    existence probe: a non-zero signal is implemented with TerminateProcess.
+    Use the Win32 process query APIs there instead.
+    """
+    if parent_pid <= 0:
+        return True
+
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetExitCodeProcess.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, parent_pid)
+        if not handle:
+            error = ctypes.get_last_error()
+            # ERROR_INVALID_PARAMETER (87): the PID no longer exists.
+            # ERROR_ACCESS_DENIED (5) is treated as alive because the process
+            # may still exist but cannot be queried with the current token.
+            return error == 5
+        try:
+            exit_code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return True
+            return exit_code.value == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+
+    try:
+        os.kill(parent_pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True
+
+
+def parent_process_watchdog(parent_pid: int, stop: threading.Event) -> None:
+    """Terminate this server when the Flutter host process disappears.
+
+    The LAN server is launched as a separate Python process. Watching the
+    parent PID covers both normal application closure and abrupt termination
+    where Flutter cannot notify the server first.
+    """
+    if parent_pid <= 0:
+        return
+
+    while not stop.wait(1.0):
+        if not _parent_process_alive(parent_pid):
+            os._exit(0)
+
+
 def discovery_loop(hub: HubServer, host: str, stop: threading.Event) -> None:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -293,6 +361,7 @@ def main() -> None:
     parser.add_argument("--campaign-name", required=True)
     parser.add_argument("--gm-name", required=True)
     parser.add_argument("--invite-token", required=True)
+    parser.add_argument("--parent-pid", type=int, default=0, help="PID of the D&D Hub desktop process")
     parser.add_argument("--max-players", type=int, default=5)
     args = parser.parse_args()
 
@@ -308,6 +377,14 @@ def main() -> None:
     stop = threading.Event()
     thread = threading.Thread(target=discovery_loop, args=(hub, private_ipv4(), stop), daemon=True)
     thread.start()
+    if args.parent_pid > 0:
+        parent_thread = threading.Thread(
+            target=parent_process_watchdog,
+            args=(args.parent_pid, stop),
+            name="parent-process-watchdog",
+            daemon=True,
+        )
+        parent_thread.start()
     try:
         print(f"DNDHUB_SERVER_STARTING host={args.host} port={args.port} protocol={PROTOCOL}", flush=True)
         uvicorn.run(app, host=args.host, port=args.port, log_level="warning")

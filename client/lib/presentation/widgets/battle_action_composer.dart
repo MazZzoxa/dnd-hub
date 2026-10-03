@@ -3,9 +3,13 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/battle_action_request_model.dart';
 import '../../data/models/character_model.dart';
+import '../../data/models/character_condition_model.dart';
 import '../../domain/battle/dice_service.dart';
 
 class BattleActionComposerResult {
+  final String actionName;
+  final String description;
+  final bool saveAction;
   final BattleTargetType targetType;
   final String targetCharacterSyncId;
   final String targetLabel;
@@ -17,6 +21,9 @@ class BattleActionComposerResult {
   final Map<String, dynamic> metadata;
 
   const BattleActionComposerResult({
+    required this.actionName,
+    required this.description,
+    required this.saveAction,
     required this.targetType,
     required this.targetCharacterSyncId,
     required this.targetLabel,
@@ -38,6 +45,7 @@ Future<BattleActionComposerResult?> showBattleActionComposer(
   String attackFormula = '',
   String effectFormula = '',
   BattleEffectType effectType = BattleEffectType.none,
+  List<CharacterConditionModel> conditions = const [],
 }) async {
   return showModalBottomSheet<BattleActionComposerResult>(
     context: context,
@@ -51,6 +59,7 @@ Future<BattleActionComposerResult?> showBattleActionComposer(
       initialAttackFormula: attackFormula,
       initialEffectFormula: effectFormula,
       initialEffectType: effectType,
+      conditions: conditions,
     ),
   );
 }
@@ -63,6 +72,7 @@ class _BattleActionComposerSheet extends StatefulWidget {
   final String initialAttackFormula;
   final String initialEffectFormula;
   final BattleEffectType initialEffectType;
+  final List<CharacterConditionModel> conditions;
 
   const _BattleActionComposerSheet({
     required this.actionName,
@@ -72,6 +82,7 @@ class _BattleActionComposerSheet extends StatefulWidget {
     required this.initialAttackFormula,
     required this.initialEffectFormula,
     required this.initialEffectType,
+    required this.conditions,
   });
 
   @override
@@ -85,6 +96,11 @@ class _BattleActionComposerSheetState
   late final TextEditingController _externalTarget;
   late final TextEditingController _attackFormula;
   late final TextEditingController _effectFormula;
+  late final TextEditingController _actionName;
+  late final TextEditingController _description;
+  late final TextEditingController _conditionName;
+  late final TextEditingController _conditionDescription;
+  late final TextEditingController _durationRounds;
 
   BattleTargetType _targetType = BattleTargetType.self;
   String _allySyncId = '';
@@ -95,11 +111,18 @@ class _BattleActionComposerSheetState
   List<int> _attackRolls = const [];
   List<int> _effectRolls = const [];
   String _error = '';
+  bool _saveAction = false;
+  String _conditionSyncId = '';
 
   @override
   void initState() {
     super.initState();
     _externalTarget = TextEditingController();
+    _actionName = TextEditingController(text: widget.actionName);
+    _description = TextEditingController();
+    _conditionName = TextEditingController();
+    _conditionDescription = TextEditingController();
+    _durationRounds = TextEditingController(text: '1');
     final initialFormula = widget.initialAttackFormula.trim();
     _attackFormula = TextEditingController(
       text: initialFormula.isEmpty ? '1к20' : initialFormula,
@@ -119,6 +142,11 @@ class _BattleActionComposerSheetState
     _externalTarget.dispose();
     _attackFormula.dispose();
     _effectFormula.dispose();
+    _actionName.dispose();
+    _description.dispose();
+    _conditionName.dispose();
+    _conditionDescription.dispose();
+    _durationRounds.dispose();
     super.dispose();
   }
 
@@ -179,13 +207,34 @@ class _BattleActionComposerSheetState
       setState(() => _error = 'Результат попадания не может быть отрицательным.');
       return;
     }
-    if (_effectType != BattleEffectType.none && _effectTotal == null) {
+    final isCondition = _effectType == BattleEffectType.conditionApply || _effectType == BattleEffectType.conditionRemove;
+    if (_effectType != BattleEffectType.none && !isCondition && _effectTotal == null) {
       setState(() => _error = 'Для эффекта сначала сделайте бросок.');
+      return;
+    }
+    if (isCondition && _targetType == BattleTargetType.external) {
+      setState(() => _error = 'Состояние можно применить или снять только с себя или союзника.');
+      return;
+    }
+    if (_effectType == BattleEffectType.conditionApply && _conditionName.text.trim().isEmpty) {
+      setState(() => _error = 'Укажите название состояния.');
+      return;
+    }
+    if (_effectType == BattleEffectType.conditionRemove && _conditionSyncId.isEmpty) {
+      setState(() => _error = 'Выберите состояние для снятия.');
+      return;
+    }
+    final selectedName = widget.actionType == BattleActionType.manual ? _actionName.text.trim() : widget.actionName;
+    if (selectedName.isEmpty) {
+      setState(() => _error = 'Укажите название действия.');
       return;
     }
 
     Navigator.of(context).pop(
       BattleActionComposerResult(
+        actionName: selectedName,
+        description: _description.text.trim(),
+        saveAction: widget.actionType == BattleActionType.manual && _saveAction,
         targetType: _targetType,
         targetCharacterSyncId: targetCharacterSyncId,
         targetLabel: targetLabel,
@@ -196,6 +245,15 @@ class _BattleActionComposerSheetState
         effectTotal: _effectTotal,
         metadata: {
           'actor_name': widget.actor.name,
+          'description': _description.text.trim(),
+          if (_effectType == BattleEffectType.conditionApply) ...{
+            'condition_name': _conditionName.text.trim(),
+            'condition_description': _conditionDescription.text.trim(),
+            'duration_rounds': int.tryParse(_durationRounds.text.trim()) ?? 0,
+            'remaining_rounds': int.tryParse(_durationRounds.text.trim()) ?? 0,
+          },
+          if (_effectType == BattleEffectType.conditionRemove)
+            'condition_sync_id': _conditionSyncId,
           'attack_rolls': _attackRolls,
           'attack_raw_total': _attackRawTotal,
           'effect_rolls': _effectRolls,
@@ -250,6 +308,13 @@ class _BattleActionComposerSheetState
                 ),
               ],
             ),
+            if (widget.actionType == BattleActionType.manual) ...[
+              TextField(controller: _actionName, decoration: const InputDecoration(labelText: 'Название')),
+              const SizedBox(height: 10),
+              TextField(controller: _description, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Описание', alignLabelWithHint: true)),
+              const SizedBox(height: 10),
+              SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Сохранить действие'), subtitle: const Text('Добавить в список собственных действий персонажа'), value: _saveAction, onChanged: (value) => setState(() => _saveAction = value)),
+            ],
             const SizedBox(height: 16),
             DropdownButtonFormField<BattleTargetType>(
               value: _targetType,
@@ -345,31 +410,50 @@ class _BattleActionComposerSheetState
                   value: BattleEffectType.temporaryHp,
                   child: Text('Временные хиты'),
                 ),
+                DropdownMenuItem(value: BattleEffectType.conditionApply, child: Text('Наложить состояние')),
+                DropdownMenuItem(value: BattleEffectType.conditionRemove, child: Text('Снять состояние')),
               ],
               onChanged: (value) {
                 if (value == null) return;
                 setState(() {
                   _effectType = value;
-                  if (value == BattleEffectType.none) {
+                  if (value == BattleEffectType.none || value == BattleEffectType.conditionApply || value == BattleEffectType.conditionRemove) {
                     _effectTotal = null;
                     _effectRolls = const [];
                   }
                 });
               },
             ),
-            if (_effectType != BattleEffectType.none) ...[
+            if (_effectType == BattleEffectType.conditionApply) ...[
+              const SizedBox(height: 12),
+              TextField(controller: _conditionName, decoration: const InputDecoration(labelText: 'Состояние', hintText: 'Отравлен')),
+              const SizedBox(height: 10),
+              TextField(controller: _conditionDescription, minLines: 2, maxLines: 4, decoration: const InputDecoration(labelText: 'Описание')),
+              const SizedBox(height: 10),
+              TextField(controller: _durationRounds, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Длительность (раунды)', hintText: '0 = без срока')),
+            ] else if (_effectType == BattleEffectType.conditionRemove) ...[
+              const SizedBox(height: 12),
+              if (widget.conditions.isEmpty)
+                const Text('У этого персонажа нет активных состояний.', style: TextStyle(color: AppTheme.textSecondary))
+              else
+                DropdownButtonFormField<String>(value: _conditionSyncId.isEmpty ? null : _conditionSyncId, decoration: const InputDecoration(labelText: 'Состояние'), items: [for (final condition in widget.conditions) DropdownMenuItem(value: condition.syncId, child: Text(condition.name))], onChanged: (value) => setState(() => _conditionSyncId = value ?? '')),
+            ] else if (_effectType != BattleEffectType.none) ...[
               const SizedBox(height: 12),
               _RollField(
                 title: switch (_effectType) {
                   BattleEffectType.damage => 'Формула урона',
                   BattleEffectType.healing => 'Формула лечения',
                   BattleEffectType.temporaryHp => 'Формула временных хитов',
+                  BattleEffectType.conditionApply => 'Формула эффекта',
+                  BattleEffectType.conditionRemove => 'Формула эффекта',
                   BattleEffectType.none => 'Формула эффекта',
                 },
                 hint: switch (_effectType) {
                   BattleEffectType.damage => '1к8 + 3',
                   BattleEffectType.healing => '1к8 + 4',
                   BattleEffectType.temporaryHp => '1к4 + 4',
+                  BattleEffectType.conditionApply => '',
+                  BattleEffectType.conditionRemove => '',
                   BattleEffectType.none => '1к8',
                 },
                 controller: _effectFormula,

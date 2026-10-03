@@ -13,9 +13,13 @@ class BattleRules {
     final absorbed = amount.clamp(0, character.temporaryHp).toInt();
     final remaining = amount - absorbed;
 
+    final nextHp = (character.hp - remaining).clamp(0, character.maxHp).toInt();
     return character.copyWith(
-      hp: (character.hp - remaining).clamp(0, character.maxHp).toInt(),
+      hp: nextHp,
       temporaryHp: character.temporaryHp - absorbed,
+      lifeState: nextHp == 0 && character.lifeState == CharacterLifeState.normal
+          ? CharacterLifeState.downed
+          : character.lifeState,
     );
   }
 

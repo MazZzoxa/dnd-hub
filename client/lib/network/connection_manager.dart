@@ -214,6 +214,7 @@ class ConnectionManager extends ChangeNotifier {
         '--campaign-name', campaignName,
         '--gm-name', _displayName,
         '--invite-token', _connectedToken,
+        '--parent-pid', '$pid',
       ];
 
       final python = await _findSystemPythonExecutable();

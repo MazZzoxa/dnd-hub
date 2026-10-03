@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../widgets/character_avatar.dart';
@@ -14,6 +15,7 @@ import '../../data/repositories/ability_repository.dart';
 import '../../data/repositories/inventory_repository.dart';
 import '../../data/repositories/note_repository.dart';
 import '../../data/repositories/spell_repository.dart';
+import '../../domain/providers/character_provider.dart';
 
 class GmCharacterSheetScreen extends StatelessWidget {
   final CharacterModel character;
@@ -22,14 +24,16 @@ class GmCharacterSheetScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final id = character.id;
+    final characters = context.watch<CharacterProvider>().characters;
+    final currentCharacter = _currentCharacter(characters);
+    final id = currentCharacter.id;
     if (id == null) {
       return const Scaffold(body: Center(child: Text('У персонажа нет ID.')));
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(character.name.isEmpty ? 'Персонаж' : character.name),
+        title: Text(currentCharacter.name.isEmpty ? 'Персонаж' : currentCharacter.name),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16),
@@ -50,11 +54,11 @@ class GmCharacterSheetScreen extends StatelessWidget {
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              _HeaderCard(character: character),
+              _HeaderCard(character: currentCharacter),
               const SizedBox(height: 12),
-              _StatsCard(character: character),
+              _StatsCard(character: currentCharacter),
               const SizedBox(height: 12),
-              _AttributesCard(character: character),
+              _AttributesCard(character: currentCharacter),
               const SizedBox(height: 12),
               _ReadOnlyListCard(
                 title: 'Инвентарь',
@@ -72,7 +76,7 @@ class GmCharacterSheetScreen extends StatelessWidget {
                 emptyText: 'Способностей нет.',
               ),
               const SizedBox(height: 12),
-              _BioCard(character: character),
+              _BioCard(character: currentCharacter),
               const SizedBox(height: 12),
               _ReadOnlyListCard(
                 title: 'Заметки',
@@ -86,6 +90,13 @@ class GmCharacterSheetScreen extends StatelessWidget {
         },
       ),
     );
+  }
+
+  CharacterModel _currentCharacter(List<CharacterModel> characters) {
+    for (final item in characters) {
+      if (item.syncId == character.syncId) return item;
+    }
+    return character;
   }
 
   Future<_SheetData> _load(int characterId) async {

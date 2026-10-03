@@ -105,7 +105,7 @@ class _SessionWorkspaceScreenState extends State<SessionWorkspaceScreen> with Si
                 _OverviewTab(session: session, gmMode: currentGm, campaigns: campaigns, characters: characters, onEndSession: () => _endSession(context)),
                 _JournalTab(gmMode: currentGm, notes: workspace.notes, onAdd: () => _addNote(context), onEdit: _editNote, onDelete: _deleteNote),
                 _EventsTab(gmMode: currentGm, events: workspace.events, onAdd: () => _addEvent(context)),
-                _RewardsTab(gmMode: currentGm, rewards: workspace.rewards, characters: campaignCharacters, onAdd: () => _grantXp(context)),
+                _RewardsTab(gmMode: currentGm, rewards: workspace.rewards, characters: campaignCharacters, onAdd: () => _grantXp(context), onCurrency: () => _grantCurrency(context), onInspiration: () => _grantInspiration(context)),
                 _LootTab(gmMode: currentGm, loot: workspace.loot, characters: campaignCharacters, onAdd: () => _addLoot(context), onEdit: _editLoot, onDelete: _deleteLoot, onClaim: (loot) => _claimLoot(context, loot)),
                 _BattleTab(session: session, gmMode: currentGm),
                 _HistoryTab(entries: workspace.history, characters: campaignCharacters),
@@ -140,6 +140,8 @@ class _SessionWorkspaceScreenState extends State<SessionWorkspaceScreen> with Si
             ListTile(leading: const Icon(Icons.menu_book_outlined), title: const Text('Добавить заметку'), onTap: () { Navigator.pop(sheetContext); _addNote(context); }),
             ListTile(leading: const Icon(Icons.event_note_outlined), title: const Text('Добавить событие'), onTap: () { Navigator.pop(sheetContext); _addEvent(context); }),
             ListTile(leading: const Icon(Icons.star_outline), title: const Text('Выдать XP'), onTap: () { Navigator.pop(sheetContext); _grantXp(context); }),
+            ListTile(leading: const Icon(Icons.currency_exchange), title: const Text('Выдать валюту'), onTap: () { Navigator.pop(sheetContext); _grantCurrency(context); }),
+            ListTile(leading: const Icon(Icons.auto_awesome), title: const Text('Выдать вдохновение'), onTap: () { Navigator.pop(sheetContext); _grantInspiration(context); }),
             ListTile(leading: const Icon(Icons.inventory_2_outlined), title: const Text('Добавить добычу'), onTap: () { Navigator.pop(sheetContext); _addLoot(context); }),
             ListTile(leading: const Icon(Icons.flash_on_outlined), title: const Text('Боевой режим'), onTap: () { Navigator.pop(sheetContext); _openBattle(context, session); }),
           ],
@@ -231,6 +233,36 @@ class _SessionWorkspaceScreenState extends State<SessionWorkspaceScreen> with Si
     } catch (error) {
       _showError(error);
     }
+  }
+
+  Future<void> _grantCurrency(BuildContext context) async {
+    final characters = context.read<CharacterProvider>().characters;
+    final campaigns = context.read<CampaignProvider>();
+    final linkedIds = campaigns.members
+        .where((member) => member.role == CampaignRole.player && member.linkedCharacterId != null)
+        .map((member) => member.linkedCharacterId!)
+        .toSet();
+    final campaignCharacters = characters.where((c) => c.id != null && linkedIds.contains(c.id)).toList(growable: false);
+    if (campaignCharacters.isEmpty) { _showError(StateError('В кампании нет привязанных персонажей игроков.')); return; }
+    final result = await _currencyRewardDialog(context, campaignCharacters);
+    if (result == null || !mounted) return;
+    try {
+      await context.read<SessionWorkspaceProvider>().grantCurrency(characterSyncId: result.$1, currency: result.$2, amount: result.$3, reason: result.$4);
+      await context.read<CharacterProvider>().loadCharacters();
+    } catch (error) { _showError(error); }
+  }
+
+  Future<void> _grantInspiration(BuildContext context) async {
+    final characters = context.read<CharacterProvider>().characters;
+    final campaigns = context.read<CampaignProvider>();
+    final linkedIds = campaigns.members.where((m) => m.role == CampaignRole.player && m.linkedCharacterId != null).map((m) => m.linkedCharacterId!).toSet();
+    final campaignCharacters = characters.where((c) => c.id != null && linkedIds.contains(c.id)).toList(growable: false);
+    final character = await _characterPicker(context, campaignCharacters, title: 'Выдать вдохновение');
+    if (character == null || !mounted) return;
+    try {
+      await context.read<SessionWorkspaceProvider>().grantInspiration(characterSyncId: character.syncId);
+      await context.read<CharacterProvider>().loadCharacters();
+    } catch (error) { _showError(error); }
   }
 
   Future<void> _addLoot(BuildContext context) async {
@@ -365,8 +397,8 @@ class _OverviewTab extends StatelessWidget {
                 _StatCard(icon: Icons.menu_book_outlined, label: 'Заметки', value: '${workspace.notes.length}'),
                 _StatCard(icon: Icons.event_note_outlined, label: 'События', value: '${workspace.events.length}'),
                 _StatCard(icon: Icons.inventory_2_outlined, label: 'Добыча', value: '${workspace.loot.length}'),
-                _StatCard(icon: Icons.flash_on_outlined, label: 'Боёв', value: '${workspace.battleCount}'),
-                _StatCard(icon: Icons.trending_up_outlined, label: 'Повышений уровня', value: '${workspace.levelUpCount}'),
+                _StatCard(icon: Icons.flash_on_outlined, label: 'Бои', value: '${workspace.battleCount}'),
+                _StatCard(icon: Icons.star_outline, label: 'Награды', value: '${workspace.rewards.length}'),
               ],
             );
           },
@@ -550,7 +582,9 @@ class _RewardsTab extends StatelessWidget {
   final List<SessionRewardModel> rewards;
   final List<CharacterModel> characters;
   final VoidCallback onAdd;
-  const _RewardsTab({required this.gmMode, required this.rewards, required this.characters, required this.onAdd});
+  final VoidCallback onCurrency;
+  final VoidCallback onInspiration;
+  const _RewardsTab({required this.gmMode, required this.rewards, required this.characters, required this.onAdd, required this.onCurrency, required this.onInspiration});
 
   String _name(String syncId) {
     for (final c in characters) { if (c.syncId == syncId) return c.name; }
@@ -559,10 +593,10 @@ class _RewardsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(16), children: [
-    Row(children: [const Expanded(child: Text('Награды', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800))), if (gmMode) FilledButton.icon(onPressed: onAdd, icon: const Icon(Icons.add), label: const Text('XP'))]),
+    Row(children: [const Expanded(child: Text('Награды', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800))), if (gmMode) Wrap(spacing: 8, children: [FilledButton.icon(onPressed: onAdd, icon: const Icon(Icons.star_outline), label: const Text('XP')), OutlinedButton.icon(onPressed: onCurrency, icon: const Icon(Icons.currency_exchange), label: const Text('Валюта')), OutlinedButton.icon(onPressed: onInspiration, icon: const Icon(Icons.auto_awesome), label: const Text('Вдохновение'))])]),
     const SizedBox(height: 10),
     if (rewards.isEmpty) const Card(child: Padding(padding: EdgeInsets.all(18), child: Text('Наград пока нет.', style: TextStyle(color: AppTheme.textSecondary))))
-    else ...rewards.map((reward) => Card(child: ListTile(leading: const Icon(Icons.star_outline), title: Text(reward.type == 'xp' ? '+${reward.amount} XP' : '${reward.amount}'), subtitle: Text('${_name(reward.characterSyncId)}${reward.reason.trim().isEmpty ? '' : ' · ${reward.reason}'}'), trailing: Text(_time(reward.createdAt), style: const TextStyle(color: AppTheme.textSecondary)))))
+    else ...rewards.map((reward) => Card(child: ListTile(leading: Icon(reward.type == 'xp' ? Icons.star_outline : reward.type == 'currency' ? Icons.currency_exchange : Icons.auto_awesome), title: Text(reward.type == 'xp' ? '+${reward.amount} XP' : reward.type == 'currency' ? '+${reward.amount} ${reward.currency.toUpperCase()}' : 'Вдохновение'), subtitle: Text('${_name(reward.characterSyncId)}${reward.reason.trim().isEmpty ? '' : ' · ${reward.reason}'}'), trailing: Text(_time(reward.createdAt), style: const TextStyle(color: AppTheme.textSecondary)))))
   ]);
 }
 
@@ -615,7 +649,15 @@ class _HistoryTab extends StatelessWidget {
     switch (entry.type) {
       case 'reward_granted':
       case 'xp_awarded':
-        return Icons.star_outline;
+      case 'currency_reward':
+      case 'inspiration_granted':
+        return entry.type == 'currency_reward' ? Icons.currency_exchange : entry.type == 'inspiration_granted' ? Icons.auto_awesome : Icons.star_outline;
+      case 'condition_applied':
+      case 'condition_removed':
+      case 'downed':
+      case 'death':
+      case 'revived':
+        return Icons.local_fire_department_outlined;
       case 'loot_added':
       case 'loot_claimed':
       case 'item_granted':
@@ -640,6 +682,11 @@ class _HistoryTab extends StatelessWidget {
         'damage_applied' => '♥',
         'healing_applied' => '＋',
         'temporary_hp_applied' => '▣',
+        'condition_applied' => '+',
+        'condition_removed' => '−',
+        'downed' => '!',
+        'death' => '☠',
+        'revived' => '↻',
         _ => '•',
       };
 
@@ -666,6 +713,11 @@ class _HistoryTab extends StatelessWidget {
       'damage_applied' => 'Применён урон',
       'healing_applied' => 'Применено лечение',
       'temporary_hp_applied' => 'Изменены временные хиты',
+      'condition_applied' => 'Наложено состояние',
+      'condition_removed' => 'Снято состояние',
+      'downed' => 'Персонаж нокаутирован',
+      'death' => 'Персонаж погиб',
+      'revived' => 'Персонаж возвращён к жизни',
       _ => 'Событие боя',
     };
     if (entry.amount != null) action = '$action · ${entry.amount}';
@@ -813,6 +865,16 @@ Future<(String, int, String)?> _rewardDialog(BuildContext context, List<Characte
   final reason = TextEditingController();
   String? characterSyncId = characters.isEmpty ? null : characters.first.syncId;
   final result = await showDialog<(String, int, String)>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setState) => AlertDialog(title: const Text('Выдать XP'), content: SizedBox(width: 520, child: Column(mainAxisSize: MainAxisSize.min, children: [DropdownButtonFormField<String>(value: characterSyncId, items: [for (final c in characters) DropdownMenuItem(value: c.syncId, child: Text('${c.name} · ур. ${c.level}'))], onChanged: (v) => setState(() => characterSyncId = v), decoration: const InputDecoration(labelText: 'Персонаж')), const SizedBox(height: 10), TextField(controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'XP')), const SizedBox(height: 10), TextField(controller: reason, decoration: const InputDecoration(labelText: 'Причина'))])), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')), FilledButton(onPressed: () { final parsed = int.tryParse(amount.text.trim()); if (characterSyncId == null || parsed == null || parsed <= 0) return; Navigator.pop(context, (characterSyncId!, parsed, reason.text)); }, child: const Text('Выдать'))])));
+  amount.dispose(); reason.dispose();
+  return result;
+}
+
+Future<(String, String, int, String)?> _currencyRewardDialog(BuildContext context, List<CharacterModel> characters) async {
+  final amount = TextEditingController(text: '10');
+  final reason = TextEditingController();
+  String? characterSyncId = characters.isEmpty ? null : characters.first.syncId;
+  var currency = 'gold';
+  final result = await showDialog<(String, String, int, String)>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setState) => AlertDialog(title: const Text('Выдать валюту'), content: SizedBox(width: 520, child: Column(mainAxisSize: MainAxisSize.min, children: [DropdownButtonFormField<String>(value: characterSyncId, items: [for (final c in characters) DropdownMenuItem(value: c.syncId, child: Text('${c.name} · ур. ${c.level}'))], onChanged: (v) => setState(() => characterSyncId = v), decoration: const InputDecoration(labelText: 'Персонаж')), const SizedBox(height: 10), DropdownButtonFormField<String>(value: currency, items: const [DropdownMenuItem(value: 'copper', child: Text('Медь')), DropdownMenuItem(value: 'silver', child: Text('Серебро')), DropdownMenuItem(value: 'electrum', child: Text('Электрум')), DropdownMenuItem(value: 'gold', child: Text('Золото')), DropdownMenuItem(value: 'platinum', child: Text('Платина'))], onChanged: (v) => setState(() => currency = v ?? 'gold'), decoration: const InputDecoration(labelText: 'Валюта')), const SizedBox(height: 10), TextField(controller: amount, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Количество')), const SizedBox(height: 10), TextField(controller: reason, decoration: const InputDecoration(labelText: 'Причина'))])), actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Отмена')), FilledButton(onPressed: () { final value = int.tryParse(amount.text.trim()); if (characterSyncId == null || value == null || value <= 0) return; Navigator.pop(dialogContext, (characterSyncId!, currency, value, reason.text)); }, child: const Text('Выдать'))])));
   amount.dispose(); reason.dispose();
   return result;
 }

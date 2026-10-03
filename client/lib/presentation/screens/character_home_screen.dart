@@ -9,6 +9,7 @@ import '../../data/export/export_manager.dart';
 import '../../data/models/character_model.dart';
 import '../widgets/export_format_dialog.dart';
 import '../widgets/character_library_add_dialog.dart';
+import '../widgets/dice_roller_sheet.dart';
 import 'sections/abilities_section.dart';
 import 'sections/bio_section.dart';
 import 'sections/inventory_section.dart';
@@ -109,6 +110,11 @@ class _CharacterHomeScreenState extends State<CharacterHomeScreen> {
       appBar: AppBar(
         title: Text(character?.name ?? 'D&D Hub'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.casino_outlined),
+            tooltip: 'Бросок кубиков',
+            onPressed: () => showDiceRollerWithResult(context),
+          ),
           if (character != null) ...[
             IconButton(
               icon: const Icon(Icons.library_add_outlined),

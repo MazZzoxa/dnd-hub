@@ -163,6 +163,8 @@ class BattleActionRequestCard extends StatelessWidget {
         BattleEffectType.damage => 'Урон',
         BattleEffectType.healing => 'Лечение',
         BattleEffectType.temporaryHp => 'Временные хиты',
+        BattleEffectType.conditionApply => 'Наложение состояния',
+        BattleEffectType.conditionRemove => 'Снятие состояния',
       };
 }
 
@@ -252,6 +254,11 @@ class BattleJournalList extends StatelessWidget {
         'damage_applied' => '♥',
         'healing_applied' => '＋',
         'temporary_hp_applied' => '▣',
+        'condition_applied' => '+',
+        'condition_removed' => '−',
+        'downed' => '!',
+        'death' => '☠',
+        'revived' => '↻',
         _ => '•',
       };
 
@@ -299,6 +306,20 @@ class BattleJournalList extends StatelessWidget {
           return '$target получил лечение ${entry.amount ?? 0} · Хиты ${metadata['hp_before']} → ${metadata['hp_after']}';
         }
         return '$target получил лечение ${entry.amount ?? 0}';
+      case 'condition_applied':
+        final conditionName = metadata['name']?.toString() ?? 'Состояние';
+        final rounds = metadata['remaining_rounds'];
+        final duration = rounds == null || rounds.toString() == '0' ? '' : ' · $rounds раунд.';
+        return '$conditionName → $target$duration';
+      case 'condition_removed':
+        final conditionName = metadata['name']?.toString() ?? 'Состояние';
+        return '$conditionName снято → $target';
+      case 'downed':
+        return '$target нокаутирован';
+      case 'death':
+        return '$target погиб';
+      case 'revived':
+        return '$target возвращён к жизни';
       case 'action_approved':
         return gmDetailed
             ? '$actor: действие принято ГМ'
@@ -441,6 +462,8 @@ Future<BattleActionReviewResult?> showBattleActionReviewDialog(
                       DropdownMenuItem(value: BattleEffectType.damage, child: Text('Урон')),
                       DropdownMenuItem(value: BattleEffectType.healing, child: Text('Лечение')),
                       DropdownMenuItem(value: BattleEffectType.temporaryHp, child: Text('Временные хиты')),
+                      DropdownMenuItem(value: BattleEffectType.conditionApply, child: Text('Наложить состояние')),
+                      DropdownMenuItem(value: BattleEffectType.conditionRemove, child: Text('Снять состояние')),
                     ],
                     onChanged: (value) {
                       if (value != null) setState(() => effectType = value);

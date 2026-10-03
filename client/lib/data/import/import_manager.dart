@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:sqflite/sqflite.dart';
 
 import '../database/database_helper.dart';
+import '../../core/android_backup_service.dart';
 import '../models/ability_model.dart';
 import '../models/attack_model.dart';
 import '../models/character_model.dart';
@@ -14,6 +15,8 @@ import '../models/spell_model.dart';
 import '../models/spell_slot_model.dart';
 import '../models/xp_transaction_model.dart';
 import '../../domain/xp/xp_level_table.dart';
+import '../models/custom_action_model.dart';
+import '../models/character_condition_model.dart';
 import 'models/pdf_import_draft.dart';
 import 'pdf/pdf_importer.dart';
 import 'url/url_importer.dart';
@@ -25,7 +28,7 @@ import 'url/url_importer.dart';
 /// пайплайн (см. [PdfImportDraft], docs/PDF Importer.md, п.6 "Next steps").
 class ImportManager {
   static const String schema = 'dnd-hub';
-  static const int supportedFormatVersion = 2;
+  static const int supportedFormatVersion = 4;
 
   final DatabaseHelper _db = DatabaseHelper.instance;
 
@@ -480,6 +483,7 @@ class ImportManager {
           ),
           _abilityPreviewSection(_asList(payload['abilities'])),
           _notePreviewSection(_asList(payload['notes'])),
+          _customActionPreviewSection(_asList(payload['customActions'])),
         ].where((section) => section.entities.isNotEmpty).toList(growable: false);
         return ImportPreview(
           exportType: exportType,
@@ -491,6 +495,8 @@ class ImportManager {
             'Атаки': _asList(payload['attacks']).length,
             'Заметки': _asList(payload['notes']).length,
             'Объекты библиотеки': _asList(payload['libraryItems']).length,
+            'Импровизированные действия': _asList(payload['customActions']).length,
+            'Состояния': _asList(payload['conditions']).length,
           },
           fields: _characterPreviewFields(model),
           sections: sections,
@@ -553,6 +559,15 @@ class ImportManager {
             'Ячейки заклинаний': _asList(data['spellSlots']).length,
             'Кампании': _asList(data['campaigns']).length,
             'Участники кампаний': _asList(data['campaignMembers']).length,
+            'Сессии': _asList(data['campaignSessions']).length,
+            'Заметки сессий': _asList(data['sessionNotes']).length,
+            'События сессий': _asList(data['sessionEvents']).length,
+            'Награды сессий': _asList(data['sessionRewards']).length,
+            'Лут сессий': _asList(data['sessionLoot']).length,
+            'Бои': _asList(data['battles']).length,
+            'Ходы боёв': _asList(data['battleTurns']).length,
+            'Запросы действий': _asList(data['battleActionRequests']).length,
+            'Журнал боёв': _asList(data['battleLogEntries']).length,
             'Операции опыта': _asList(data['xpTransactions']).length,
           },
           warnings: const [
@@ -608,6 +623,30 @@ class ImportManager {
                 ImportPreviewField('Источник', map['source']?.toString() ?? '', key: 'abilities.$i.source'),
                 ImportPreviewField('URL источника', map['source_url']?.toString() ?? '', key: 'abilities.$i.sourceUrl'),
                 ImportPreviewField('Описание', map['description']?.toString() ?? '', key: 'abilities.$i.description', multiline: true),
+              ],
+            );
+          })(),
+      ],
+    );
+  }
+
+  ImportPreviewSection _customActionPreviewSection(List<dynamic> rawItems) {
+    return ImportPreviewSection(
+      key: 'customActions',
+      title: 'Импровизированные действия',
+      entities: [
+        for (var i = 0; i < rawItems.length; i++)
+          (() {
+            final map = _normalizeMap(rawItems[i]);
+            return ImportPreviewEntity(
+              key: 'customActions.$i',
+              titleFieldKey: 'customActions.$i.name',
+              fields: [
+                ImportPreviewField('Название', map['name']?.toString() ?? '', key: 'customActions.$i.name'),
+                ImportPreviewField('Описание', map['description']?.toString() ?? '', key: 'customActions.$i.description', multiline: true),
+                ImportPreviewField('Попадание', map['attack_formula']?.toString() ?? '', key: 'customActions.$i.attackFormula'),
+                ImportPreviewField('Эффект', map['effect_formula']?.toString() ?? '', key: 'customActions.$i.effectFormula'),
+                ImportPreviewField('Тип эффекта', map['effect_type']?.toString() ?? 'none', key: 'customActions.$i.effectType'),
               ],
             );
           })(),
@@ -702,6 +741,13 @@ class ImportManager {
         'sourceUrl': 'source_url',
         'description': 'description',
       });
+      _applyListEdits(copy, 'customActions', edits, {
+        'name': 'name',
+        'description': 'description',
+        'attackFormula': 'attack_formula',
+        'effectFormula': 'effect_formula',
+        'effectType': 'effect_type',
+      });
       _applyListEdits(copy, 'notes', edits, {
         'title': 'title',
         'content': 'content',
@@ -786,6 +832,16 @@ class ImportManager {
       'campaignMembers',
       'campaignSessions',
       'xpTransactions',
+      'customActions',
+      'characterConditions',
+      'sessionNotes',
+      'sessionEvents',
+      'sessionRewards',
+      'sessionLoot',
+      'battles',
+      'battleTurns',
+      'battleActionRequests',
+      'battleLogEntries',
     ];
     for (final table in requiredTables) {
       final value = data[table];
@@ -796,8 +852,20 @@ class ImportManager {
 
     final db = await _db.database;
     await db.transaction((txn) async {
+      final backupColumnCache = <String, Set<String>>{};
+
       // Сначала удаляем дочерние записи, чтобы соблюсти foreign keys.
       for (final table in const [
+        'battle_log_entries',
+        'character_conditions',
+        'custom_actions',
+        'battle_action_requests',
+        'battle_turns',
+        'battles',
+        'session_loot',
+        'session_rewards',
+        'session_events',
+        'session_notes',
         'xp_transactions',
         'campaign_sessions',
         'campaign_members',
@@ -814,25 +882,46 @@ class ImportManager {
         await txn.delete(table);
       }
 
-      await _insertRows(txn, 'library_items', _asList(data['libraryItems']));
+      // Backup хранит снимок SQLite-строк. Старые версии приложения могли
+      // оставить в базе уже неиспользуемые колонки. Такие поля встречаются,
+      // например, в старых PC-базах как portrait_path,
+      // ability_generation_method и conditions. Перед восстановлением
+      // отфильтровываем каждую строку по реальной схеме текущей БД, чтобы
+      // backup с более старой/другой схемой оставался совместимым.
+      await _insertRows(txn, 'library_items', _asList(data['libraryItems']), backupColumnCache);
       for (final raw in _asList(data['characters'])) {
-        final map = _normalizeMap(raw);
+        final map = await _filterToTableColumns(txn, 'characters', _normalizeMap(raw), backupColumnCache);
         final xp = _asInt(map['xp']) ?? 0;
         map['xp'] = xp.clamp(0, 1 << 30).toInt();
         map['level'] = XpLevelTable.levelForXp(map['xp'] as int);
         await txn.insert('characters', map);
       }
-      await _insertRows(txn, 'items', _asList(data['items']));
-      await _insertRows(txn, 'spells', _asList(data['spells']));
-      await _insertRows(txn, 'abilities', _asList(data['abilities']));
-      await _insertRows(txn, 'notes', _asList(data['notes']));
-      await _insertRows(txn, 'attacks', _asList(data['attacks']));
-      await _insertRows(txn, 'spell_slots', _asList(data['spellSlots']));
-      await _insertRows(txn, 'campaigns', _asList(data['campaigns']));
-      await _insertRows(txn, 'campaign_members', _asList(data['campaignMembers']));
-      await _insertRows(txn, 'campaign_sessions', _asList(data['campaignSessions']));
-      await _insertRows(txn, 'xp_transactions', _asList(data['xpTransactions']));
+      await _insertRows(txn, 'custom_actions', _asList(data['customActions']), backupColumnCache);
+      await _insertRows(txn, 'character_conditions', _asList(data['characterConditions']), backupColumnCache);
+      await _insertRows(txn, 'items', _asList(data['items']), backupColumnCache);
+      await _insertRows(txn, 'spells', _asList(data['spells']), backupColumnCache);
+      await _insertRows(txn, 'abilities', _asList(data['abilities']), backupColumnCache);
+      await _insertRows(txn, 'notes', _asList(data['notes']), backupColumnCache);
+      await _insertRows(txn, 'attacks', _asList(data['attacks']), backupColumnCache);
+      await _insertRows(txn, 'spell_slots', _asList(data['spellSlots']), backupColumnCache);
+      await _insertRows(txn, 'campaigns', _asList(data['campaigns']), backupColumnCache);
+      await _insertRows(txn, 'campaign_members', _asList(data['campaignMembers']), backupColumnCache);
+      await _insertRows(txn, 'campaign_sessions', _asList(data['campaignSessions']), backupColumnCache);
+      await _insertRows(txn, 'session_notes', _asList(data['sessionNotes']), backupColumnCache);
+      await _insertRows(txn, 'session_events', _asList(data['sessionEvents']), backupColumnCache);
+      await _insertRows(txn, 'session_rewards', _asList(data['sessionRewards']), backupColumnCache);
+      await _insertRows(txn, 'session_loot', _asList(data['sessionLoot']), backupColumnCache);
+      await _insertRows(txn, 'battles', _asList(data['battles']), backupColumnCache);
+      await _insertRows(txn, 'battle_turns', _asList(data['battleTurns']), backupColumnCache);
+      await _insertRows(txn, 'battle_action_requests', _asList(data['battleActionRequests']), backupColumnCache);
+      await _insertRows(txn, 'battle_log_entries', _asList(data['battleLogEntries']), backupColumnCache);
+      await _insertRows(txn, 'xp_transactions', _asList(data['xpTransactions']), backupColumnCache);
     });
+
+    // The database has just been replaced by the user's selected backup.
+    // Tell Android that its Auto Backup snapshot is now stale so a future
+    // reinstall can restore the latest state instead of an older snapshot.
+    await AndroidBackupService.dataChanged();
 
     return const ImportResult(
       exportType: 'backup',
@@ -844,12 +933,27 @@ class ImportManager {
     Transaction txn,
     String table,
     List<dynamic> rows,
+    Map<String, Set<String>> columnCache,
   ) async {
     for (final raw in rows) {
-      final map = _normalizeMap(raw);
+      final map = await _filterToTableColumns(txn, table, _normalizeMap(raw), columnCache);
       if (map.isEmpty) continue;
       await txn.insert(table, map);
     }
+  }
+
+  Future<Map<String, dynamic>> _filterToTableColumns(
+    DatabaseExecutor db,
+    String table,
+    Map<String, dynamic> source,
+    Map<String, Set<String>> columnCache,
+  ) async {
+    final allowed = columnCache[table] ??= (await db.rawQuery('PRAGMA table_info($table)'))
+        .map((row) => row['name']?.toString())
+        .whereType<String>()
+        .toSet();
+    return Map<String, dynamic>.from(source)
+      ..removeWhere((key, _) => !allowed.contains(key));
   }
 
   Future<ImportResult> _importCharacter(
@@ -918,6 +1022,23 @@ class ImportManager {
         map.remove('id');
         final note = NoteModel.fromMap(map);
         await txn.insert('notes', note.toMap()..remove('id'));
+      }
+
+      for (final raw in _asList(payload['customActions'])) {
+        final map = _normalizeMap(raw);
+        map['character_id'] = newCharacterId;
+        map.remove('id');
+        final action = CustomActionModel.fromMap(map);
+        await txn.insert('custom_actions', action.toMap()..remove('id'));
+      }
+
+      for (final raw in _asList(payload['conditions'])) {
+        final map = _normalizeMap(raw);
+        map['character_id'] = newCharacterId;
+        map['character_sync_id'] = character.syncId;
+        map.remove('id');
+        final condition = CharacterConditionModel.fromMap(map);
+        await txn.insert('character_conditions', condition.toMap()..remove('id'));
       }
 
       for (final raw in _asList(payload['spellSlots'])) {

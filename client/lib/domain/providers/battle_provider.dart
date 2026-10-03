@@ -7,6 +7,7 @@ import '../../data/models/battle_log_entry_model.dart';
 import '../../data/models/battle_model.dart';
 import '../../data/models/battle_projection_model.dart';
 import '../../data/models/battle_turn_model.dart';
+import '../../data/models/character_model.dart';
 import '../../data/models/session_model.dart';
 import '../../data/repositories/battle_action_request_repository.dart';
 import '../../data/repositories/battle_log_repository.dart';
@@ -563,6 +564,17 @@ class BattleProvider extends ChangeNotifier {
         'temporary_hp_after': updated.temporaryHp,
       },
     );
+    if (operation == BattleOperation.damage && updated.lifeState != character.lifeState) {
+      await _appendLocalJournal(
+        battle.syncId,
+        type: 'downed',
+        targetCharacterSyncId: characterSyncId,
+        metadata: {
+          'previous_life_state': character.lifeState.dbValue,
+          'life_state': updated.lifeState.dbValue,
+        },
+      );
+    }
     notifyListeners();
   }
 

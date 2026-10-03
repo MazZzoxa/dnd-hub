@@ -1,3 +1,5 @@
+import 'character_model.dart';
+
 class BattleProjectionModel {
   final String characterSyncId;
   final String name;
@@ -7,6 +9,8 @@ class BattleProjectionModel {
   final int armorClass;
   final int initiative;
   final String playerClientId;
+  final CharacterLifeState lifeState;
+  final List<String> conditions;
 
   const BattleProjectionModel({
     required this.characterSyncId,
@@ -17,6 +21,8 @@ class BattleProjectionModel {
     required this.armorClass,
     this.initiative = 0,
     this.playerClientId = '',
+    this.lifeState = CharacterLifeState.normal,
+    this.conditions = const [],
   });
 
   bool isOwn(String clientId) =>
@@ -32,5 +38,14 @@ class BattleProjectionModel {
         armorClass: (map['armor_class'] as num?)?.toInt() ?? 0,
         initiative: (map['initiative'] as num?)?.toInt() ?? 0,
         playerClientId: map['player_client_id']?.toString() ?? '',
+        lifeState: CharacterLifeStateX.fromDb(map['life_state']?.toString()),
+        conditions: (map['conditions'] is List)
+            ? (map['conditions'] as List)
+                .map((item) => item is Map
+                    ? item['name']?.toString() ?? ''
+                    : item?.toString() ?? '')
+                .where((name) => name.trim().isNotEmpty)
+                .toList(growable: false)
+            : const [],
       );
 }

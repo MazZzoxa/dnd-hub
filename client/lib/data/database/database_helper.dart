@@ -34,7 +34,9 @@ class DatabaseHelper {
   // v12: добавлены turns, action requests и append-only combat journal.
   // v14: добавлено название боя в battles.
   // v15: Session Rewards теперь сохраняют переход уровня для Session Overview.
-  static const _dbVersion = 15;
+  // v16: Gameplay State — life_state, custom_actions и character_conditions,
+  //      расширение Session Rewards для валюты.
+  static const _dbVersion = 16;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -91,6 +93,7 @@ class DatabaseHelper {
     await _ensureBattleNameColumn(db);
     await _ensureV07SessionWorkspaceSchema(db);
     await _ensureV07SessionRewardLevelColumns(db);
+    await _ensureV10GameplaySchema(db);
   }
 
   Future<void> _ensureV06Schema(Database db) async {
@@ -338,6 +341,7 @@ class DatabaseHelper {
         hit_dice TEXT NOT NULL DEFAULT '',
         death_save_successes INTEGER NOT NULL DEFAULT 0,
         death_save_failures INTEGER NOT NULL DEFAULT 0,
+        life_state TEXT NOT NULL DEFAULT 'normal',
         saving_throw_proficiencies TEXT NOT NULL DEFAULT '[]',
         skill_proficiencies TEXT NOT NULL DEFAULT '[]',
         xp INTEGER NOT NULL DEFAULT 0,
@@ -716,6 +720,9 @@ class DatabaseHelper {
     if (!names.contains('level_after')) {
       await db.execute('ALTER TABLE session_rewards ADD COLUMN level_after INTEGER NOT NULL DEFAULT 1');
     }
+    if (!names.contains('currency')) {
+      await db.execute("ALTER TABLE session_rewards ADD COLUMN currency TEXT NOT NULL DEFAULT ''");
+    }
   }
 
   Future<void> _ensureV07SessionWorkspaceSchema(Database db) async {
@@ -759,6 +766,7 @@ class DatabaseHelper {
         character_sync_id TEXT NOT NULL,
         type TEXT NOT NULL DEFAULT 'xp',
         amount INTEGER NOT NULL,
+        currency TEXT NOT NULL DEFAULT '',
         reason TEXT NOT NULL DEFAULT '',
         level_before INTEGER NOT NULL DEFAULT 1,
         level_after INTEGER NOT NULL DEFAULT 1,
@@ -793,6 +801,74 @@ class DatabaseHelper {
 
     for (final table in ['session_notes', 'session_events', 'session_rewards', 'session_loot']) {
       final rows = await db.query(table, columns: ['rowid', 'sync_id'], where: "sync_id = '' OR sync_id IS NULL");
+      if (rows.isEmpty) continue;
+      await db.transaction((txn) async {
+        for (final row in rows) {
+          await txn.rawUpdate(
+            "UPDATE $table SET sync_id = lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(2))) || '-' || lower(hex(randomblob(6))) WHERE rowid = ?",
+            [row['rowid']],
+          );
+        }
+      });
+    }
+  }
+
+  Future<void> _ensureV10GameplaySchema(Database db) async {
+    final characterColumns = await db.rawQuery('PRAGMA table_info(characters)');
+    final characterNames = characterColumns.map((row) => row['name']?.toString()).whereType<String>().toSet();
+    if (!characterNames.contains('life_state')) {
+      await db.execute("ALTER TABLE characters ADD COLUMN life_state TEXT NOT NULL DEFAULT 'normal'");
+    }
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS custom_actions (
+        sync_id TEXT NOT NULL DEFAULT '',
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        character_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        attack_formula TEXT NOT NULL DEFAULT '',
+        effect_formula TEXT NOT NULL DEFAULT '',
+        effect_type TEXT NOT NULL DEFAULT 'none',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_custom_actions_character ON custom_actions(character_id, sort_order, id)');
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_actions_sync_id ON custom_actions(sync_id) WHERE sync_id <> ''");
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS character_conditions (
+        sync_id TEXT NOT NULL DEFAULT '',
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        character_id INTEGER NOT NULL,
+        character_sync_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        source_character_sync_id TEXT NOT NULL DEFAULT '',
+        source_label TEXT NOT NULL DEFAULT '',
+        duration_rounds INTEGER NOT NULL DEFAULT 0,
+        remaining_rounds INTEGER NOT NULL DEFAULT 0,
+        scope TEXT NOT NULL DEFAULT 'character',
+        active INTEGER NOT NULL DEFAULT 1,
+        metadata TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (character_id) REFERENCES characters (id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_character_conditions_character ON character_conditions(character_id, active, created_at DESC, id DESC)');
+    await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_character_conditions_sync_id ON character_conditions(sync_id) WHERE sync_id <> ''");
+
+    final rewardColumns = await db.rawQuery('PRAGMA table_info(session_rewards)');
+    final rewardNames = rewardColumns.map((row) => row['name']?.toString()).whereType<String>().toSet();
+    if (rewardNames.isNotEmpty && !rewardNames.contains('currency')) {
+      await db.execute("ALTER TABLE session_rewards ADD COLUMN currency TEXT NOT NULL DEFAULT ''");
+    }
+
+    for (final table in const ['custom_actions', 'character_conditions']) {
+      final rows = await db.query(table, columns: const ['rowid', 'sync_id'], where: "sync_id = '' OR sync_id IS NULL");
       if (rows.isEmpty) continue;
       await db.transaction((txn) async {
         for (final row in rows) {
@@ -1083,6 +1159,10 @@ class DatabaseHelper {
 
     if (oldVersion < 15) {
       await _ensureV07SessionRewardLevelColumns(db);
+    }
+
+    if (oldVersion < 16) {
+      await _ensureV10GameplaySchema(db);
     }
   }
 

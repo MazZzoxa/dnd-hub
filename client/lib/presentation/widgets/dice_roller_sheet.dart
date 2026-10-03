@@ -72,6 +72,61 @@ Future<DiceRollResult?> showDiceRoller(
   return result;
 }
 
+
+Future<void> showDiceRollerWithResult(
+  BuildContext context, {
+  DiceService? service,
+}) async {
+  final result = await showDiceRoller(context, service: service);
+  if (result == null || !context.mounted) return;
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Результат броска'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            result.expression,
+            style: const TextStyle(
+              color: AppTheme.textSecondary,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '${result.total}',
+            style: const TextStyle(
+              fontSize: 42,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (result.modifier != 0)
+            Text(
+              'Броски: ${result.rolls.join(', ')} · Модификатор: '
+              '${result.modifier >= 0 ? '+' : ''}${result.modifier}',
+              style: const TextStyle(color: AppTheme.textSecondary),
+            )
+          else
+            Text(
+              'Броски: ${result.rolls.join(', ')}',
+              style: const TextStyle(color: AppTheme.textSecondary),
+            ),
+        ],
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Закрыть'),
+        ),
+      ],
+    ),
+  );
+}
+
 void _roll(
   BuildContext context,
   DiceService service,
