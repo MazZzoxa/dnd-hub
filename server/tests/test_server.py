@@ -1,6 +1,37 @@
+import asyncio
+
 from fastapi.testclient import TestClient
 
 from server.app.server import HubServer, PROTOCOL, build_app
+
+
+
+def test_server_allows_more_than_five_players() -> None:
+    hub = HubServer(
+        campaign_id="campaign-1",
+        campaign_name="Test Campaign",
+        gm_name="GM",
+        invite_token="token",
+        max_players=5,  # legacy argument must not reintroduce a cap
+    )
+
+    class DummyWebSocket:
+        async def close(self, **kwargs) -> None:
+            return None
+
+    async def connect_players() -> None:
+        for index in range(8):
+            await hub.connect(
+                DummyWebSocket(),
+                f"player-{index}",
+                "player",
+                f"Player {index}",
+                "campaign-1",
+            )
+
+    asyncio.run(connect_players())
+    assert hub.player_count == 8
+    assert hub.advertisement("127.0.0.1")["max_players"] is None
 
 
 def test_health_and_session() -> None:
@@ -1142,7 +1173,7 @@ def test_battle_workspace_turn_action_approval_and_state_application() -> None:
             effect_formula='1d10',
             effect_type='damage',
             effect_total=9,
-            metadata={'attack_rolls': [13]},
+            metadata={'attack_rolls': [13], 'effect_rolls': [9]},
         )
         assert gm.receive_json()['payload']['event'] == 'battle.action.submitted'
         assert player.receive_json()['payload']['event'] == 'battle.action.submitted'
@@ -1156,6 +1187,15 @@ def test_battle_workspace_turn_action_approval_and_state_application() -> None:
         request = hub.state[('battle_action_request', action_id)]
         assert request['status'] == 'pending_gm'
         assert request['target_type'] == 'external'
+        action_logs = [
+            data for (entity, _), data in hub.state.items()
+            if entity == 'battle_log_entry' and data.get('action_request_sync_id') == action_id
+        ]
+        attack_log = next(entry for entry in action_logs if entry['type'] == 'attack_roll')
+        damage_log = next(entry for entry in action_logs if entry['type'] == 'damage_roll')
+        assert attack_log['metadata']['rolls'] == [13]
+        assert damage_log['metadata']['rolls'] == [9]
+        assert damage_log['metadata']['formula'] == '1d10'
         assert hub.state[('character', 'character-1')]['hp'] == 30
 
         _send_command(
@@ -1350,6 +1390,13 @@ def test_battle_action_modify_and_reject_preserve_original_request() -> None:
         rejected = hub.state[('battle_action_request', reject_id)]
         assert rejected['status'] == 'rejected'
         assert rejected['resolution_note'] == 'Действие уже использовано.'
+        rejection_log = next(
+            data for (entity, _), data in hub.state.items()
+            if entity == 'battle_log_entry'
+            and data.get('action_request_sync_id') == reject_id
+            and data.get('type') == 'action_rejected'
+        )
+        assert rejection_log['metadata']['note'] == 'Действие уже использовано.'
 
 
 
@@ -1478,6 +1525,13 @@ def _session_workspace_snapshot() -> list[dict[str, object]]:
     return entities
 
 
+def test_proficiency_bonus_follows_dnd5e_level_brackets() -> None:
+    bonus = HubServer._proficiency_bonus_for_level
+    assert [bonus(level) for level in (1, 4, 5, 8, 9, 12, 13, 16, 17, 20)] == [2, 2, 3, 3, 4, 4, 5, 5, 6, 6]
+    assert bonus(0) == 2
+    assert bonus(21) == 6
+
+
 def test_session_reward_is_atomic_and_duplicate_safe() -> None:
     hub = HubServer(campaign_id='campaign-1', campaign_name='Test Campaign', gm_name='GM', invite_token='token')
     client = TestClient(build_app(hub, port=8765))
@@ -1494,10 +1548,12 @@ def test_session_reward_is_atomic_and_duplicate_safe() -> None:
         assert character_event['data']['sync_id'] == 'character-1'
         assert character_event['data']['xp'] == 6750
         assert character_event['data']['level'] == 5
+        assert character_event['data']['proficiency_bonus'] == 3
         ack = messages[4]
         assert ack['payload']['event'] == 'ack'
         assert ack['payload']['character']['xp'] == 6750
         assert ack['payload']['character']['level'] == 5
+        assert ack['payload']['character']['proficiency_bonus'] == 3
         assert ack['payload']['reward']['amount'] == 250
         assert ack['payload']['xp_transaction']['xp_after'] == 6750
         assert hub.state[('character', 'character-1')]['xp'] == 6750
@@ -1511,6 +1567,30 @@ def test_session_reward_is_atomic_and_duplicate_safe() -> None:
         assert duplicate['payload']['duplicate'] is True
         assert hub.state[('character', 'character-1')]['xp'] == 6750
         assert sum(1 for kind, _ in hub.state if kind == 'session_reward') == 1
+
+
+def test_session_xp_level_up_updates_proficiency_bonus() -> None:
+    hub = HubServer(campaign_id='campaign-1', campaign_name='Test Campaign', gm_name='GM', invite_token='token')
+    client = TestClient(build_app(hub, port=8765))
+    entities = _session_workspace_snapshot()
+    character_entity = next(entity for entity in entities if entity['entity'] == 'character')
+    character_entity['data'].update({'level': 4, 'xp': 6400, 'proficiency_bonus': 2})
+
+    with client.websocket_connect('/ws?token=token&client_id=gm-1&campaign_id=campaign-1&role=gm&display_name=GM') as gm:
+        assert gm.receive_json()['payload']['event'] == 'session.ready'
+        _send_command(gm, 'level-up-seed', 'snapshot.publish', entities=entities)
+        assert gm.receive_json()['payload']['event'] == 'ack'
+
+        _send_command(gm, 'level-up-reward', 'session.reward.apply', session_sync_id='session-1', character_sync_id='character-1', amount=100)
+        messages = [gm.receive_json() for _ in range(5)]
+        character_event = messages[0]['payload']
+        assert character_event['entity'] == 'character'
+        assert character_event['data']['xp'] == 6500
+        assert character_event['data']['level'] == 5
+        assert character_event['data']['proficiency_bonus'] == 3
+        ack = messages[4]['payload']
+        assert ack['event'] == 'ack'
+        assert ack['character']['proficiency_bonus'] == 3
 
 
 def test_player_cannot_mutate_session_workspace_and_loot_claim_grants_inventory() -> None:

@@ -14,6 +14,21 @@ void main() {
     expect(XpLevelTable.levelForXp(999999), 20);
   });
 
+  test('proficiency bonus follows D&D 5e level brackets', () {
+    expect(XpLevelTable.proficiencyBonusForLevel(1), 2);
+    expect(XpLevelTable.proficiencyBonusForLevel(4), 2);
+    expect(XpLevelTable.proficiencyBonusForLevel(5), 3);
+    expect(XpLevelTable.proficiencyBonusForLevel(8), 3);
+    expect(XpLevelTable.proficiencyBonusForLevel(9), 4);
+    expect(XpLevelTable.proficiencyBonusForLevel(12), 4);
+    expect(XpLevelTable.proficiencyBonusForLevel(13), 5);
+    expect(XpLevelTable.proficiencyBonusForLevel(16), 5);
+    expect(XpLevelTable.proficiencyBonusForLevel(17), 6);
+    expect(XpLevelTable.proficiencyBonusForLevel(20), 6);
+    expect(XpLevelTable.proficiencyBonusForLevel(0), 2);
+    expect(XpLevelTable.proficiencyBonusForLevel(21), 6);
+  });
+
   test('progress exposes current and next level thresholds', () {
     final character = CharacterModel(name: 'Kael', xp: 600);
     final progress = XpService().progress(character);

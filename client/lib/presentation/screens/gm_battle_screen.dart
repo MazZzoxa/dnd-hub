@@ -15,6 +15,7 @@ import '../../domain/providers/gameplay_state_provider.dart';
 import '../../data/models/character_condition_model.dart';
 import '../widgets/battle_action_sheet.dart';
 import '../widgets/battle_character_card.dart';
+import '../widgets/battle_notes_sheet.dart';
 import '../widgets/battle_toolbar.dart';
 import '../widgets/battle_workspace_widgets.dart';
 import '../widgets/dice_roller_sheet.dart';
@@ -77,6 +78,20 @@ class _GmBattleScreenState extends State<GmBattleScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Заметки ГМ',
+            icon: const Icon(Icons.sticky_note_2_outlined),
+            onPressed: () => showBattleNotesSheet(
+              context,
+              sessionKey: session == null || session.syncId.trim().isEmpty
+                  ? 'local-session-${widget.sessionId}'
+                  : session.syncId,
+              ownerKey: 'gm',
+              title: 'Заметки ГМ',
+            ),
+          ),
+        ],
       ),
       body: battle.active == null
           ? _inactiveBody(session)

@@ -56,13 +56,15 @@ class HubServer:
         campaign_name: str,
         gm_name: str,
         invite_token: str,
-        max_players: int = 5,
+        max_players: int | None = None,
     ) -> None:
         self.campaign_id = campaign_id
         self.campaign_name = campaign_name
         self.gm_name = gm_name
         self.invite_token = invite_token
-        self.max_players = max_players
+        # Player count is intentionally unlimited. Keep the optional constructor
+        # argument for compatibility with existing launchers, but do not enforce it.
+        self.max_players: int | None = None
         self.port = 8765
         self.clients: dict[str, Client] = {}
         self.history: collections.deque[dict[str, Any]] = collections.deque(maxlen=MAX_HISTORY)
@@ -120,9 +122,6 @@ class HubServer:
 
         if role == "gm" and any(c.role == "gm" for c in self.clients.values()):
             raise ValueError("GM is already connected")
-        if role == "player" and self.player_count >= self.max_players:
-            raise ValueError("player limit reached")
-
         client = Client(
             websocket=websocket,
             client_id=client_id,
@@ -530,6 +529,11 @@ class HubServer:
             if safe_xp >= thresholds[index]:
                 return index + 1
         return 1
+
+    @staticmethod
+    def _proficiency_bonus_for_level(level: int) -> int:
+        safe_level = max(1, min(20, int(level)))
+        return 2 + ((safe_level - 1) // 4)
 
     def _character_for_campaign(self, character_sync_id: str) -> tuple[tuple[str, str], dict[str, Any]] | None:
         value = character_sync_id.strip()
@@ -1031,7 +1035,12 @@ class HubServer:
                     action_request_sync_id=request["sync_id"],
                     amount=attack_total,
                     turn_sequence=request["turn_sequence"],
-                    metadata={"formula": request["attack_formula"], "bonus": (request.get("metadata") or {}).get("attack_bonus", "")},
+                    metadata={
+                        "formula": request["attack_formula"],
+                        "bonus": (request.get("metadata") or {}).get("attack_bonus", ""),
+                        "rolls": (request.get("metadata") or {}).get("attack_rolls", []),
+                        "action_name": action_name,
+                    },
                 )
             if effect_total is not None and effect_type != "none":
                 roll_type = {"damage": "damage_roll", "healing": "healing_roll", "temporary_hp": "temporary_hp_applied"}.get(effect_type, "effect_applied")
@@ -1045,7 +1054,11 @@ class HubServer:
                     action_request_sync_id=request["sync_id"],
                     amount=effect_total,
                     turn_sequence=request["turn_sequence"],
-                    metadata={"formula": request["effect_formula"]},
+                    metadata={
+                        "formula": request["effect_formula"],
+                        "rolls": (request.get("metadata") or {}).get("effect_rolls", []),
+                        "action_name": action_name,
+                    },
                 )
             await client.websocket.send_json({
                 "protocol": PROTOCOL,
@@ -2062,6 +2075,7 @@ class HubServer:
             updated_character = dict(character)
             updated_character["xp"] = new_xp
             updated_character["level"] = new_level
+            updated_character["proficiency_bonus"] = self._proficiency_bonus_for_level(new_level)
             self.state[key] = updated_character
             self.state[("session_reward", reward["sync_id"])] = reward
             self.state[("xp_transaction", xp_transaction["sync_id"])] = xp_transaction
@@ -3046,7 +3060,7 @@ class HubServer:
 
 def build_app(hub: HubServer, *, port: int) -> FastAPI:
     hub.port = port
-    app = FastAPI(title="D&D Hub GM Server", version="1.0.0")
+    app = FastAPI(title="D&D Hub GM Server", version="1.0.1")
 
     @app.get("/health")
     async def health() -> dict[str, Any]:

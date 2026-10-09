@@ -18,6 +18,7 @@ import '../../domain/providers/session_provider.dart';
 import '../../domain/providers/gameplay_state_provider.dart';
 import '../../network/services/sync_service.dart';
 import '../widgets/battle_character_card.dart';
+import '../widgets/battle_notes_sheet.dart';
 import '../widgets/battle_toolbar.dart';
 import '../widgets/battle_workspace_widgets.dart';
 import '../widgets/dice_roller_sheet.dart';
@@ -72,6 +73,9 @@ class _PlayerBattleScreenState extends State<PlayerBattleScreen> {
 
     final session = _findSession(sessionProvider.sessions, widget.sessionId);
     final ownCharacter = _ownCharacter(membership, characters);
+    final ownCharacterSyncId = ownCharacter?.syncId ?? '';
+    final notesOwnerKey =
+        'player:${ownCharacterSyncId.isNotEmpty ? ownCharacterSyncId : membership.name}';
     _scheduleLoadoutSync(ownCharacter);
 
     return Scaffold(
@@ -90,6 +94,20 @@ class _PlayerBattleScreenState extends State<PlayerBattleScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Заметки игрока',
+            icon: const Icon(Icons.sticky_note_2_outlined),
+            onPressed: () => showBattleNotesSheet(
+              context,
+              sessionKey: session == null || session.syncId.trim().isEmpty
+                  ? 'local-session-${widget.sessionId}'
+                  : session.syncId,
+              ownerKey: notesOwnerKey,
+              title: 'Заметки игрока',
+            ),
+          ),
+        ],
       ),
       body: battle.active == null
           ? _inactiveBody(session)

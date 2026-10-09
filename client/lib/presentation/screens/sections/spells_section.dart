@@ -5,6 +5,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/constants/dnd_data.dart';
 import '../../../data/models/library_item_model.dart';
 import '../../../data/models/spell_model.dart';
+import '../../../data/models/spell_slot_model.dart';
 import '../../../domain/providers/character_provider.dart';
 import '../../../domain/providers/spell_provider.dart';
 import '../../../domain/providers/spell_slot_provider.dart';
@@ -73,9 +74,7 @@ class _SpellsSectionState extends State<SpellsSection> {
               children: [
                 const _SpellcastingHeader(),
                 const SizedBox(height: 16),
-                const _SectionLabel('Ячейки заклинаний'),
-                const SizedBox(height: 10),
-                const _SpellSlotsGrid(),
+                const _SpellSlotsCard(),
                 const SizedBox(height: 20),
                 const _SectionLabel('Известные заклинания'),
                 const SizedBox(height: 10),
@@ -377,97 +376,416 @@ class _StatMini extends StatelessWidget {
   }
 }
 
-/// Сетка ячеек заклинаний по уровням 1-9: всего / потрачено.
-class _SpellSlotsGrid extends StatelessWidget {
-  const _SpellSlotsGrid();
+/// Компактный блок ячеек заклинаний: показываются только уровни с положительным
+/// максимумом; настройка максимума вынесена в отдельный диалог.
+class _SpellSlotsCard extends StatelessWidget {
+  const _SpellSlotsCard();
+
+  static const double _gap = 8;
 
   @override
   Widget build(BuildContext context) {
     return Consumer<SpellSlotProvider>(
       builder: (context, provider, _) {
-        return GridView.count(
-          crossAxisCount: 3,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 1.6,
-          children: List.generate(9, (i) {
-            final level = i + 1;
-            final slot = provider.slotFor(level);
-            return Container(
-              decoration: BoxDecoration(
-                color: AppTheme.surface,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              padding: const EdgeInsets.all(8),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+        final levels = [
+          for (int level = 1; level <= 9; level++)
+            if (provider.slotFor(level).total > 0) level,
+        ];
+
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Text('Уровень $level',
-                      style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      GestureDetector(
-                        onTap: () => provider.adjustUsed(level, -1),
-                        child: const Icon(Icons.remove, size: 16, color: AppTheme.accent),
-                      ),
-                      const SizedBox(width: 8),
-                      Text('${slot.used}/${slot.total}',
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: () => provider.adjustUsed(level, 1),
-                        child: const Icon(Icons.add, size: 16, color: AppTheme.accent),
-                      ),
-                    ],
+                  const Expanded(
+                    child: Text('Ячейки заклинаний',
+                        style: TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
                   ),
-                  GestureDetector(
-                    onTap: () => _editTotal(context, provider, level, slot.total),
-                    child: const Padding(
-                      padding: EdgeInsets.only(top: 2),
-                      child: Text('изм. всего',
-                          style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
+                  if (levels.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.tune, size: 20),
+                      tooltip: 'Настроить количество ячеек',
+                      color: AppTheme.textSecondary,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(width: 40, height: 36),
+                      onPressed: () => _configure(context, provider),
                     ),
-                  ),
                 ],
               ),
-            );
-          }),
+              const SizedBox(height: 8),
+              if (levels.isEmpty)
+                _buildEmpty(context, provider)
+              else
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final columns = constraints.maxWidth >= 720
+                        ? 3
+                        : constraints.maxWidth >= 460
+                            ? 2
+                            : 1;
+                    return Column(
+                      children: [
+                        for (int i = 0; i < levels.length; i += columns) ...[
+                          if (i > 0) const SizedBox(height: _gap),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              for (int c = 0; c < columns; c++) ...[
+                                if (c > 0) const SizedBox(width: _gap),
+                                Expanded(
+                                  child: i + c < levels.length
+                                      ? _SlotRow(
+                                          level: levels[i + c],
+                                          slot: provider.slotFor(levels[i + c]),
+                                          onAdjust: (delta) =>
+                                              provider.adjustUsed(levels[i + c], delta),
+                                        )
+                                      : const SizedBox.shrink(),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+            ],
+          ),
         );
       },
     );
   }
 
-  Future<void> _editTotal(
-      BuildContext context, SpellSlotProvider provider, int level, int currentTotal) async {
-    final controller = TextEditingController(text: '$currentTotal');
-    final result = await showDialog<int>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Всего ячеек — уровень $level'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          autofocus: true,
+  Widget _buildEmpty(BuildContext context, SpellSlotProvider provider) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Ячейки заклинаний ещё не настроены. Укажите, сколько ячеек каждого уровня есть у персонажа.',
+          style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Отмена'),
+        const SizedBox(height: 10),
+        FilledButton.tonalIcon(
+          onPressed: () => _configure(context, provider),
+          icon: const Icon(Icons.tune),
+          label: const Text('Настроить ячейки'),
+        ),
+      ],
+    );
+  }
+
+  /// Диалог настройки максимального количества ячеек по уровням 1–9.
+  static Future<void> _configure(BuildContext context, SpellSlotProvider provider) async {
+    final totals = <int, int>{
+      for (int level = 1; level <= 9; level++) level: provider.slotFor(level).total,
+    };
+
+    final result = await showDialog<Map<int, int>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Ячейки заклинаний'),
+          content: SizedBox(
+            width: 360,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Максимум ячеек по уровням. Уровни с нулём не показываются на листе.',
+                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                  ),
+                  const SizedBox(height: 8),
+                  for (int level = 1; level <= 9; level++)
+                    Row(
+                      children: [
+                        Expanded(child: Text('Уровень $level')),
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle_outline),
+                          onPressed: totals[level]! > 0
+                              ? () => setState(() => totals[level] = totals[level]! - 1)
+                              : null,
+                        ),
+                        SizedBox(
+                          width: 32,
+                          child: Text('${totals[level]}',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline),
+                          onPressed: totals[level]! < 99
+                              ? () => setState(() => totals[level] = totals[level]! + 1)
+                              : null,
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
           ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(int.tryParse(controller.text.trim())),
-            child: const Text('Сохранить'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(Map<int, int>.of(totals)),
+              child: const Text('Сохранить'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (result == null) return;
+
+    for (final entry in result.entries) {
+      if (provider.slotFor(entry.key).total == entry.value) continue;
+      await provider.setTotal(entry.key, entry.value);
+      // Если максимум стал меньше потраченных — подтягиваем потраченные к максимуму.
+      if (provider.slotFor(entry.key).used > entry.value) {
+        await provider.adjustUsed(entry.key, 0);
+      }
+    }
+  }
+}
+
+/// Один уровень: метка, индикаторы (заполненные — доступные, пустые — потраченные),
+/// счётчик «потрачено/всего» и кнопки изменения количества потраченных ячеек.
+class _SlotRow extends StatelessWidget {
+  final int level;
+  final SpellSlotModel slot;
+  final ValueChanged<int> onAdjust;
+
+  const _SlotRow({required this.level, required this.slot, required this.onAdjust});
+
+  @override
+  Widget build(BuildContext context) {
+    final used = slot.used.clamp(0, slot.total).toInt();
+    final available = slot.total - used;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 4, 4, 4),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceVariant,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 38,
+            child: Text('Ур. $level',
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+          ),
+          Expanded(
+            child: Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: [
+                for (int i = 0; i < slot.total; i++)
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: i < available ? AppTheme.accent : Colors.transparent,
+                      border: Border.all(
+                        color: i < available
+                            ? AppTheme.accent
+                            : AppTheme.textSecondary.withOpacity(0.6),
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('$used/${slot.total}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              const Text('потрачено',
+                  style: TextStyle(fontSize: 9, color: AppTheme.textSecondary)),
+            ],
+          ),
+          const SizedBox(width: 2),
+          IconButton(
+            icon: const Icon(Icons.remove, size: 20, color: AppTheme.accent),
+            tooltip: 'Вернуть ячейку',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+            onPressed: used > 0 ? () => onAdjust(-1) : null,
+          ),
+          IconButton(
+            icon: const Icon(Icons.add, size: 20, color: AppTheme.accent),
+            tooltip: 'Потратить ячейку',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+            onPressed: used < slot.total ? () => onAdjust(1) : null,
           ),
         ],
       ),
     );
-    if (result != null) {
-      await provider.setTotal(level, result);
-    }
+  }
+}
+
+/// Строка заклинания: название и основные параметры в свёрнутом виде,
+/// полные параметры и описание — по нажатию. Редактирование — отдельной кнопкой.
+class _SpellTile extends StatefulWidget {
+  final SpellModel spell;
+  final int characterId;
+
+  const _SpellTile({super.key, required this.spell, required this.characterId});
+
+  @override
+  State<_SpellTile> createState() => _SpellTileState();
+}
+
+class _SpellTileState extends State<_SpellTile> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final spell = widget.spell;
+    final summary = [
+      if (spell.type.isNotEmpty) spell.type,
+      if (spell.range.isNotEmpty) spell.range,
+      if (spell.castingTime.isNotEmpty) spell.castingTime,
+      if (spell.components.isNotEmpty) _localizedComponents(spell.components),
+    ].join(' · ');
+
+    final params = <(String, String)>[
+      if (spell.type.isNotEmpty) ('Школа', spell.type),
+      if (spell.castingTime.isNotEmpty) ('Время накладывания', spell.castingTime),
+      if (spell.range.isNotEmpty) ('Дальность', spell.range),
+      if (spell.duration.isNotEmpty) ('Длительность', spell.duration),
+      if (spell.components.isNotEmpty)
+        ('Компоненты', _localizedComponents(spell.components)),
+      ('Подготовлено', spell.prepared ? 'Да' : 'Нет'),
+    ];
+
+    return InkWell(
+      onTap: () => setState(() => _expanded = !_expanded),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 8, 4, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  spell.prepared ? Icons.auto_fix_high : Icons.auto_fix_normal_outlined,
+                  color: spell.prepared ? AppTheme.accent : AppTheme.textSecondary,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(spell.name,
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
+                      if (summary.isNotEmpty)
+                        Text(
+                          summary,
+                          maxLines: _expanded ? null : 2,
+                          overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                        ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined, size: 22),
+                  tooltip: 'Редактировать',
+                  color: AppTheme.textSecondary,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+                  onPressed: () => _SpellsSectionState._showSpellDialog(
+                    context,
+                    characterId: widget.characterId,
+                    existing: spell,
+                  ),
+                ),
+                Icon(
+                  _expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 22,
+                  color: AppTheme.textSecondary,
+                ),
+                const SizedBox(width: 6),
+              ],
+            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: _expanded
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(38, 10, 10, 4),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                              spacing: 20,
+                              runSpacing: 8,
+                              children: [
+                                for (final (label, value) in params)
+                                  ConstrainedBox(
+                                    constraints: const BoxConstraints(minWidth: 90, maxWidth: 320),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(label,
+                                            style: const TextStyle(
+                                                fontSize: 11, color: AppTheme.textSecondary)),
+                                        Text(value, style: const TextStyle(fontSize: 13)),
+                                      ],
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              spell.description.isEmpty
+                                  ? 'Описание отсутствует.'
+                                  : spell.description,
+                              style: TextStyle(
+                                fontSize: 13,
+                                height: 1.35,
+                                color: spell.description.isEmpty
+                                    ? AppTheme.textSecondary
+                                    : AppTheme.textPrimary,
+                              ),
+                            ),
+                            if (spell.sourceUrl.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text('Источник: ${spell.sourceUrl}',
+                                  style: const TextStyle(
+                                      fontSize: 12, color: AppTheme.textSecondary)),
+                            ],
+                          ],
+                        ),
+                      ),
+                    )
+                  : const SizedBox(width: double.infinity),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -501,24 +819,10 @@ class _LevelBlock extends StatelessWidget {
               children: [
                 for (int i = 0; i < spells.length; i++) ...[
                   if (i > 0) const Divider(height: 1, indent: 16, endIndent: 16),
-                  ListTile(
-                    onTap: () => _SpellsSectionState._showSpellDialog(
-                      context,
-                      characterId: characterId,
-                      existing: spells[i],
-                    ),
-                    leading: Icon(
-                      spells[i].prepared ? Icons.auto_fix_high : Icons.auto_fix_normal_outlined,
-                      color: spells[i].prepared ? AppTheme.accent : AppTheme.textSecondary,
-                    ),
-                    title: Text(spells[i].name),
-                    subtitle: Text([
-                      if (spells[i].type.isNotEmpty) spells[i].type,
-                      if (spells[i].range.isNotEmpty) spells[i].range,
-                      if (spells[i].castingTime.isNotEmpty) spells[i].castingTime,
-                      if (spells[i].components.isNotEmpty)
-                        _localizedComponents(spells[i].components),
-                    ].join(' · ')),
+                  _SpellTile(
+                    key: ValueKey(spells[i].id ?? spells[i].syncId),
+                    spell: spells[i],
+                    characterId: characterId,
                   ),
                 ],
               ],

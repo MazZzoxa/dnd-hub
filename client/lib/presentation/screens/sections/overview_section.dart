@@ -165,21 +165,7 @@ class _OverviewSectionState extends State<OverviewSection> {
               _DeathSavesCard(character: character, provider: provider),
             ],
             const SizedBox(height: 10),
-            QuickAdjustCard(
-              label: 'Золото (ЗМ)',
-              icon: Icons.monetization_on,
-              accentColor: Colors.amber,
-              valueText: '${character.gold}',
-              step: 1,
-              onAdjust: (delta) => provider.adjustGold(delta),
-              onTapValue: () => _showAdjustDialog(
-                context,
-                title: 'Изменить золото',
-                initial: character.gold,
-                onSubmit: (value) =>
-                    provider.updateCharacter(character.copyWith(gold: value)),
-              ),
-            ),
+            _WalletCard(character: character, provider: provider),
             const SizedBox(height: 10),
             Builder(builder: (context) {
               final progress = XpService().progress(character);
@@ -257,10 +243,6 @@ class _OverviewSectionState extends State<OverviewSection> {
             const _SectionLabel('Атаки и заклинания'),
             const SizedBox(height: 10),
             _AttacksCard(characterId: character.id!),
-            const SizedBox(height: 20),
-            const _SectionLabel('Прочее'),
-            const SizedBox(height: 10),
-            _CurrencyRow(character: character),
           ],
         );
       },
@@ -303,7 +285,7 @@ class _OverviewSectionState extends State<OverviewSection> {
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(labelText: 'напр. 20к10'),
+          decoration: const InputDecoration(labelText: 'напр. 1к10'),
         ),
         actions: [
           TextButton(
@@ -617,9 +599,13 @@ class _DeathSavesCard extends StatelessWidget {
   }
 }
 
+/// Характеристики: на узких экранах сетка 3 × 2, на широких — одна строка из шести.
 class _AttributesGrid extends StatelessWidget {
   final CharacterModel character;
   const _AttributesGrid({required this.character});
+
+  static const double _wideBreakpoint = 560;
+  static const double _gap = 8;
 
   @override
   Widget build(BuildContext context) {
@@ -631,33 +617,73 @@ class _AttributesGrid extends StatelessWidget {
       ('МДР', character.wisdom, character.wisdomMod),
       ('ХАР', character.charisma, character.charismaMod),
     ];
-    return GridView.count(
-      crossAxisCount: 3,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 1.3,
-      children: attrs.map((a) {
-        final (label, score, mod) = a;
-        return Container(
-          decoration: BoxDecoration(
-            color: AppTheme.surface,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          alignment: Alignment.center,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(label,
-                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-              Text('$score', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              Text(mod >= 0 ? '+$mod' : '$mod',
-                  style: const TextStyle(color: AppTheme.accent, fontSize: 13)),
+    final cards = [
+      for (final (label, score, mod) in attrs)
+        _AttributeCard(label: label, score: score, mod: mod),
+    ];
+
+    // Без CrossAxisAlignment.stretch: экран лежит в ListView с неограниченной
+    // высотой, stretch в таком Row приводит к бесконечным ограничениям.
+    Widget row(List<Widget> items) => Row(
+          children: [
+            for (int i = 0; i < items.length; i++) ...[
+              if (i > 0) const SizedBox(width: _gap),
+              Expanded(child: items[i]),
             ],
-          ),
+          ],
         );
-      }).toList(),
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= _wideBreakpoint) {
+          return row(cards);
+        }
+        return Column(
+          children: [
+            row(cards.sublist(0, 3)),
+            const SizedBox(height: _gap),
+            row(cards.sublist(3, 6)),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _AttributeCard extends StatelessWidget {
+  final String label;
+  final int score;
+  final int mod;
+  const _AttributeCard({required this.label, required this.score, required this.mod});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label,
+              style: const TextStyle(
+                  color: AppTheme.textSecondary, fontSize: 11, letterSpacing: 0.3)),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text('$score',
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, height: 1.15)),
+          ),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(mod >= 0 ? '+$mod' : '$mod',
+                style: const TextStyle(
+                    color: AppTheme.accent, fontSize: 15, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -895,34 +921,436 @@ class _AttacksCard extends StatelessWidget {
   }
 }
 
-class _CurrencyRow extends StatelessWidget {
+/// Описание одного номинала монет.
+class _Coin {
+  final String key;
+  final String abbr;
+  final String name;
+  final Color color;
+  const _Coin(this.key, this.abbr, this.name, this.color);
+}
+
+const _coins = <_Coin>[
+  _Coin('copper', 'ММ', 'Медные', Color(0xFFD08A5A)),
+  _Coin('silver', 'СМ', 'Серебряные', Color(0xFFB0BEC5)),
+  _Coin('electrum', 'ЭМ', 'Электрумовые', Color(0xFF6FCFB8)),
+  _Coin('gold', 'ЗМ', 'Золотые', Color(0xFFFFC107)),
+  _Coin('platinum', 'ПМ', 'Платиновые', Color(0xFFB39DDB)),
+];
+
+int _coinValue(CharacterModel c, String key) {
+  switch (key) {
+    case 'copper':
+      return c.copper;
+    case 'silver':
+      return c.silver;
+    case 'electrum':
+      return c.electrum;
+    case 'gold':
+      return c.gold;
+    case 'platinum':
+      return c.platinum;
+  }
+  return 0;
+}
+
+CharacterModel _withCoin(CharacterModel c, String key, int value) {
+  switch (key) {
+    case 'copper':
+      return c.copyWith(copper: value);
+    case 'silver':
+      return c.copyWith(silver: value);
+    case 'electrum':
+      return c.copyWith(electrum: value);
+    case 'gold':
+      return c.copyWith(gold: value);
+    case 'platinum':
+      return c.copyWith(platinum: value);
+  }
+  return c;
+}
+
+/// Единый «Кошелёк»: все пять номиналов одновременно, включая нулевые.
+/// Данные и синхронизация идут через прежний `CharacterProvider.updateCharacter`.
+class _WalletCard extends StatelessWidget {
   final CharacterModel character;
-  const _CurrencyRow({required this.character});
+  final CharacterProvider provider;
+  const _WalletCard({required this.character, required this.provider});
+
+  static const double _wideBreakpoint = 600;
+  static const double _gap = 8;
+
+  Future<void> _setCoin(String key, int value) async {
+    final current = provider.selected;
+    if (current == null) return;
+    final next = value.clamp(0, 1 << 30).toInt();
+    await provider.updateCharacter(_withCoin(current, key, next));
+  }
+
+  Future<void> _adjustCoin(String key, int delta) async {
+    // Берём актуальное значение в момент нажатия, чтобы быстрые тапы не терялись.
+    final current = provider.selected;
+    if (current == null) return;
+    await _setCoin(key, _coinValue(current, key) + delta);
+  }
+
+  Future<void> _editCoin(BuildContext context, _Coin coin) async {
+    final current = _coinValue(character, coin.key);
+    final controller = TextEditingController(text: '$current');
+    var mode = 0; // 0 — задать, 1 — добавить, 2 — вычесть
+
+    final result = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) {
+          int? computeResult() {
+            final v = int.tryParse(controller.text.trim());
+            if (v == null || v < 0) return null;
+            switch (mode) {
+              case 1:
+                return (current + v).clamp(0, 1 << 30).toInt();
+              case 2:
+                return (current - v).clamp(0, 1 << 30).toInt();
+              default:
+                return v;
+            }
+          }
+
+          final preview = computeResult();
+          void apply() {
+            final value = computeResult();
+            if (value != null) Navigator.of(dialogContext).pop(value);
+          }
+
+          Widget modeChip(int value, String label) => ChoiceChip(
+                label: Text(label),
+                selected: mode == value,
+                onSelected: (_) => setState(() {
+                  mode = value;
+                  controller.text = value == 0 ? '$current' : '';
+                  controller.selection = TextSelection(
+                    baseOffset: 0,
+                    extentOffset: controller.text.length,
+                  );
+                }),
+              );
+
+          return AlertDialog(
+            title: Text('${coin.name} монеты (${coin.abbr})'),
+            content: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Сейчас: $current',
+                      style: const TextStyle(color: AppTheme.textSecondary)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      modeChip(0, 'Задать'),
+                      modeChip(1, 'Добавить'),
+                      modeChip(2, 'Вычесть'),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => setState(() {}),
+                    onSubmitted: (_) => apply(),
+                    decoration: InputDecoration(
+                      labelText: mode == 0 ? 'Новое значение' : 'Количество монет',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    preview == null ? 'Введите целое число от 0' : 'Станет: $preview ${coin.abbr}',
+                    style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('Отмена'),
+              ),
+              TextButton(
+                onPressed: preview == null ? null : apply,
+                child: const Text('Применить'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (result != null) {
+      await _setCoin(coin.key, result);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    Widget coin(String label, int value) => Expanded(
-          child: Column(
-            children: [
-              Text('$value', style: const TextStyle(fontWeight: FontWeight.bold)),
-              Text(label, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-            ],
-          ),
-        );
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppTheme.surface,
         borderRadius: BorderRadius.circular(14),
       ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.account_balance_wallet_outlined, size: 20, color: Colors.amber),
+              SizedBox(width: 8),
+              Text('Кошелёк', style: TextStyle(fontWeight: FontWeight.w600)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= _wideBreakpoint;
+              final tiles = [
+                for (final coin in _coins)
+                  _CoinTile(
+                    coin: coin,
+                    value: _coinValue(character, coin.key),
+                    vertical: wide,
+                    onAdjust: (delta) => _adjustCoin(coin.key, delta),
+                    onEdit: () => _editCoin(context, coin),
+                  ),
+              ];
+              if (wide) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (int i = 0; i < tiles.length; i++) ...[
+                      if (i > 0) const SizedBox(width: _gap),
+                      Expanded(child: tiles[i]),
+                    ],
+                  ],
+                );
+              }
+              // Узкий экран: два столбца, последний (пятый) номинал — на всю ширину.
+              return Column(
+                children: [
+                  for (int i = 0; i < tiles.length; i += 2) ...[
+                    if (i > 0) const SizedBox(height: _gap),
+                    Row(
+                      children: [
+                        Expanded(child: tiles[i]),
+                        if (i + 1 < tiles.length) ...[
+                          const SizedBox(width: _gap),
+                          Expanded(child: tiles[i + 1]),
+                        ],
+                      ],
+                    ),
+                  ],
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CoinTile extends StatelessWidget {
+  final _Coin coin;
+  final int value;
+  final bool vertical;
+  final ValueChanged<int> onAdjust;
+  final VoidCallback onEdit;
+
+  const _CoinTile({
+    required this.coin,
+    required this.value,
+    required this.vertical,
+    required this.onAdjust,
+    required this.onEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final decoration = BoxDecoration(
+      color: coin.color.withOpacity(0.10),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: coin.color.withOpacity(0.35)),
+    );
+
+    final valueText = FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: vertical ? Alignment.center : Alignment.centerLeft,
+      child: Text(
+        '$value',
+        style: const TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.bold,
+          color: AppTheme.textPrimary,
+        ),
+      ),
+    );
+
+    if (vertical) {
+      return Container(
+        padding: const EdgeInsets.all(8),
+        decoration: decoration,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                _CoinBadge(coin: coin),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    coin.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary),
+                  ),
+                ),
+              ],
+            ),
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: onEdit,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                child: SizedBox(width: double.infinity, child: valueText),
+              ),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: _CoinButton(
+                    icon: Icons.remove,
+                    color: coin.color,
+                    tooltip: '−1 ${coin.abbr} (удержание: −5)',
+                    onTap: () => onAdjust(-1),
+                    onLongPress: () => onAdjust(-5),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: _CoinButton(
+                    icon: Icons.add,
+                    color: coin.color,
+                    tooltip: '+1 ${coin.abbr} (удержание: +5)',
+                    onTap: () => onAdjust(1),
+                    onLongPress: () => onAdjust(5),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 4, 4, 4),
+      decoration: decoration,
       child: Row(
         children: [
-          coin('ММ', character.copper),
-          coin('СМ', character.silver),
-          coin('ЭМ', character.electrum),
-          coin('ЗМ', character.gold),
-          coin('ПМ', character.platinum),
+          Tooltip(message: coin.name, child: _CoinBadge(coin: coin)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: onEdit,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: valueText,
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          _CoinButton(
+            icon: Icons.remove,
+            color: coin.color,
+            tooltip: '−1 ${coin.abbr} (удержание: −5)',
+            width: 34,
+            onTap: () => onAdjust(-1),
+            onLongPress: () => onAdjust(-5),
+          ),
+          const SizedBox(width: 4),
+          _CoinButton(
+            icon: Icons.add,
+            color: coin.color,
+            tooltip: '+1 ${coin.abbr} (удержание: +5)',
+            width: 34,
+            onTap: () => onAdjust(1),
+            onLongPress: () => onAdjust(5),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _CoinBadge extends StatelessWidget {
+  final _Coin coin;
+  const _CoinBadge({required this.coin});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 30,
+      height: 24,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: coin.color.withOpacity(0.25),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        coin.abbr,
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: coin.color),
+      ),
+    );
+  }
+}
+
+class _CoinButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String tooltip;
+  final double? width;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _CoinButton({
+    required this.icon,
+    required this.color,
+    required this.tooltip,
+    required this.onTap,
+    required this.onLongPress,
+    this.width,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: color.withOpacity(0.18),
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: SizedBox(
+            width: width,
+            height: 40,
+            child: Icon(icon, color: color, size: 22),
+          ),
+        ),
       ),
     );
   }

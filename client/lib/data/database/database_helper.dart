@@ -36,7 +36,8 @@ class DatabaseHelper {
   // v15: Session Rewards теперь сохраняют переход уровня для Session Overview.
   // v16: Gameplay State — life_state, custom_actions и character_conditions,
   //      расширение Session Rewards для валюты.
-  static const _dbVersion = 16;
+  // v17: локальные личные заметки ГМ/игроков по сессиям.
+  static const _dbVersion = 17;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -94,6 +95,7 @@ class DatabaseHelper {
     await _ensureV07SessionWorkspaceSchema(db);
     await _ensureV07SessionRewardLevelColumns(db);
     await _ensureV10GameplaySchema(db);
+    await _ensureBattleNotesSchema(db);
   }
 
   Future<void> _ensureV06Schema(Database db) async {
@@ -725,6 +727,19 @@ class DatabaseHelper {
     }
   }
 
+  Future<void> _ensureBattleNotesSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS battle_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_key TEXT NOT NULL,
+        owner_key TEXT NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL,
+        UNIQUE(session_key, owner_key)
+      )
+    ''');
+  }
+
   Future<void> _ensureV07SessionWorkspaceSchema(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS session_notes (
@@ -1163,6 +1178,10 @@ class DatabaseHelper {
 
     if (oldVersion < 16) {
       await _ensureV10GameplaySchema(db);
+    }
+
+    if (oldVersion < 17) {
+      await _ensureBattleNotesSchema(db);
     }
   }
 

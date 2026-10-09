@@ -61,6 +61,7 @@ class CharacterProvider extends ChangeNotifier {
     ++_stateRevision;
     final normalized = character.copyWith(
       level: XpLevelTable.levelForXp(character.xp),
+      proficiencyBonus: XpLevelTable.proficiencyBonusForLevel(XpLevelTable.levelForXp(character.xp)),
       syncId: character.syncId.isEmpty ? SyncIds.newId() : character.syncId,
     );
     final id = await _repository.create(normalized);
@@ -76,6 +77,7 @@ class CharacterProvider extends ChangeNotifier {
     ++_stateRevision;
     final normalized = character.copyWith(
       level: XpLevelTable.levelForXp(character.xp),
+      proficiencyBonus: XpLevelTable.proficiencyBonusForLevel(XpLevelTable.levelForXp(character.xp)),
       syncId: character.syncId.isEmpty ? SyncIds.newId() : character.syncId,
     );
     await _repository.update(normalized);
@@ -209,7 +211,11 @@ class CharacterProvider extends ChangeNotifier {
     if (newXp == c.xp) return;
     ++_stateRevision;
     final transaction = await _xpService.change(c, delta, reason: reason);
-    final updated = c.copyWith(xp: transaction.xpAfter, level: transaction.levelAfter);
+    final updated = c.copyWith(
+      xp: transaction.xpAfter,
+      level: transaction.levelAfter,
+      proficiencyBonus: XpLevelTable.proficiencyBonusForLevel(transaction.levelAfter),
+    );
     _replaceInList(updated);
     _selected = updated;
     notifyListeners();

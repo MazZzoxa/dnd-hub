@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../data/models/character_model.dart';
 import '../../domain/providers/character_provider.dart';
+import '../../domain/xp/xp_level_table.dart';
 
 /// Экран создания и редактирования персонажа.
 /// Если [existing] == null — создаётся новый персонаж, иначе редактируется он.
@@ -41,7 +42,7 @@ class _CharacterFormScreenState extends State<CharacterFormScreen> {
   late final TextEditingController _proficiencyBonus;
   late final TextEditingController _hitDice;
   late final TextEditingController _hitDiceTotal;
-  String _hitDiceType = 'd8';
+  bool _levelWasChanged = false;
 
   bool get _isEditing => widget.existing != null;
 
@@ -69,7 +70,7 @@ class _CharacterFormScreenState extends State<CharacterFormScreen> {
     _armorClass = TextEditingController(text: '${c?.armorClass ?? 10}');
     _initiative = TextEditingController(text: '${c?.initiative ?? 0}');
     _speed = TextEditingController(text: '${c?.speed ?? 30}');
-    _proficiencyBonus = TextEditingController(text: '${c?.proficiencyBonus ?? 2}');
+    _proficiencyBonus = TextEditingController(text: '${XpLevelTable.proficiencyBonusForLevel(c?.level ?? 1)}');
     _hitDice = TextEditingController(text: c?.hitDice ?? '');
   }
 
@@ -92,6 +93,10 @@ class _CharacterFormScreenState extends State<CharacterFormScreen> {
 
     final provider = context.read<CharacterProvider>();
     final maxHp = _int(_maxHp, 10);
+    final level = _int(_level, 1).clamp(1, 20).toInt();
+    final xp = widget.existing == null || _levelWasChanged
+        ? XpLevelTable.xpForLevel(level)
+        : widget.existing!.xp;
 
     final character = (widget.existing ?? const CharacterModel(name: '')).copyWith(
       name: _name.text.trim(),
@@ -99,7 +104,8 @@ class _CharacterFormScreenState extends State<CharacterFormScreen> {
       className: _className.text.trim(),
       subclass: _subclass.text.trim(),
       background: _background.text.trim(),
-      level: _int(_level, 1),
+      level: level,
+      xp: xp,
       alignment: _alignment.text.trim(),
       playerName: _playerName.text.trim(),
       strength: _int(_strength, 10),
@@ -117,7 +123,7 @@ class _CharacterFormScreenState extends State<CharacterFormScreen> {
       armorClass: _int(_armorClass, 10),
       initiative: _int(_initiative, 0),
       speed: _int(_speed, 30),
-      proficiencyBonus: _int(_proficiencyBonus, 2),
+      proficiencyBonus: XpLevelTable.proficiencyBonusForLevel(level),
       hitDice: _hitDice.text.trim(),
     );
 
@@ -148,16 +154,16 @@ class _CharacterFormScreenState extends State<CharacterFormScreen> {
             const SizedBox(height: 20),
             _SectionHeader('Характеристики'),
             _row([
-              _field(_strength, 'Сила', numeric: true),
-              _field(_dexterity, 'Ловкость', numeric: true),
+              _abilityField(_strength, 'Сила'),
+              _abilityField(_dexterity, 'Ловкость'),
             ]),
             _row([
-              _field(_constitution, 'Телосложение', numeric: true),
-              _field(_intelligence, 'Интеллект', numeric: true),
+              _abilityField(_constitution, 'Телосложение'),
+              _abilityField(_intelligence, 'Интеллект'),
             ]),
             _row([
-              _field(_wisdom, 'Мудрость', numeric: true),
-              _field(_charisma, 'Харизма', numeric: true),
+              _abilityField(_wisdom, 'Мудрость'),
+              _abilityField(_charisma, 'Харизма'),
             ]),
             const SizedBox(height: 20),
             _SectionHeader('Боевые параметры'),
@@ -170,8 +176,8 @@ class _CharacterFormScreenState extends State<CharacterFormScreen> {
               _field(_speed, 'Скорость', numeric: true),
             ]),
             _row([
-              _field(_proficiencyBonus, 'Бонус мастерства', numeric: true),
-              _field(_hitDice, 'Кость хитов (напр. 20к10)'),
+              _field(_proficiencyBonus, 'Бонус мастерства', numeric: true, readOnly: true),
+              _field(_hitDice, 'Кость хитов (напр. 1к10)'),
             ]),
             const SizedBox(height: 28),
             ElevatedButton(
@@ -188,14 +194,77 @@ class _CharacterFormScreenState extends State<CharacterFormScreen> {
     );
   }
 
-  Widget _levelDisplay() => TextField(
-        controller: _level,
-        readOnly: true,
-        decoration: const InputDecoration(
-          labelText: 'Уровень',
-          helperText: 'Рассчитывается из опыта',
+  Widget _levelDisplay() {
+    final currentLevel = _int(_level, 1).clamp(1, 20).toInt();
+    return DropdownButtonFormField<int>(
+      value: currentLevel,
+      decoration: InputDecoration(
+        labelText: 'Уровень',
+        helperText: 'Опыт: ${XpLevelTable.xpForLevel(currentLevel)} XP',
+      ),
+      items: [
+        for (var level = 1; level <= 20; level++)
+          DropdownMenuItem(value: level, child: Text('$level уровень')),
+      ],
+      onChanged: (level) {
+        if (level == null) return;
+        setState(() {
+          _level.text = '$level';
+          _proficiencyBonus.text = '${XpLevelTable.proficiencyBonusForLevel(level)}';
+          _levelWasChanged = true;
+        });
+      },
+    );
+  }
+
+  void _adjustAbilityScore(TextEditingController controller, int delta) {
+    final current = int.tryParse(controller.text.trim()) ?? 10;
+    final next = current + delta;
+    final text = next.toString();
+    controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    setState(() {});
+  }
+
+  String _abilityModifier(TextEditingController controller) {
+    final score = int.tryParse(controller.text.trim()) ?? 10;
+    final modifier = ((score - 10) / 2).floor();
+    return 'Модификатор ${modifier >= 0 ? '+' : ''}$modifier';
+  }
+
+  Widget _abilityField(TextEditingController controller, String label) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: TextInputType.number,
+        textAlign: TextAlign.center,
+        decoration: InputDecoration(
+          labelText: label,
+          helperText: _abilityModifier(controller),
+          prefixIconConstraints: const BoxConstraints(minWidth: 36, minHeight: 48),
+          suffixIconConstraints: const BoxConstraints(minWidth: 36, minHeight: 48),
+          prefixIcon: IconButton(
+            tooltip: 'Уменьшить $label на 1',
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            onPressed: () => _adjustAbilityScore(controller, -1),
+            icon: const Icon(Icons.remove, size: 18),
+          ),
+          suffixIcon: IconButton(
+            tooltip: 'Увеличить $label на 1',
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            onPressed: () => _adjustAbilityScore(controller, 1),
+            icon: const Icon(Icons.add, size: 18),
+          ),
         ),
-      );
+        onChanged: (_) => setState(() {}),
+      ),
+    );
+  }
 
   Widget _row(List<Widget> children) {
     return Row(
@@ -209,13 +278,17 @@ class _CharacterFormScreenState extends State<CharacterFormScreen> {
   }
 
   Widget _field(TextEditingController controller, String label,
-      {bool required = false, bool numeric = false}) {
+      {bool required = false, bool numeric = false, bool readOnly = false}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
         controller: controller,
         keyboardType: numeric ? TextInputType.number : TextInputType.text,
-        decoration: InputDecoration(labelText: label),
+        readOnly: readOnly,
+        decoration: InputDecoration(
+          labelText: label,
+          helperText: readOnly ? 'Автоматически зависит от уровня' : null,
+        ),
         validator: required
             ? (value) => (value == null || value.trim().isEmpty) ? 'Обязательное поле' : null
             : null,

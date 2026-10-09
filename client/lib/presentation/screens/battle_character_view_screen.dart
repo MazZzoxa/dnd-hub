@@ -22,8 +22,10 @@ import '../../domain/providers/battle_provider.dart';
 import '../../network/protocol/network_message.dart';
 import '../../network/services/sync_service.dart';
 import '../../domain/providers/campaign_provider.dart';
+import '../../domain/providers/session_provider.dart';
 import '../../domain/providers/character_provider.dart';
 import '../widgets/battle_action_composer.dart';
+import '../widgets/battle_notes_sheet.dart';
 
 class BattleCharacterViewScreen extends StatefulWidget {
   final CharacterModel character;
@@ -239,12 +241,41 @@ class _BattleCharacterViewScreenState
         .toList(growable: false);
     final battle = context.watch<BattleProvider>();
     final gameplay = context.watch<GameplayStateProvider>();
+    final sessionProvider = context.watch<SessionProvider>();
+    final activeBattle = battle.active;
+    var notesSessionKey = activeBattle == null
+        ? ''
+        : 'local-session-${activeBattle.sessionId}';
+    if (activeBattle != null) {
+      for (final session in sessionProvider.sessions) {
+        if (session.id == activeBattle.sessionId && session.syncId.trim().isNotEmpty) {
+          notesSessionKey = session.syncId;
+          break;
+        }
+      }
+    }
+    final role = context.read<SyncService>().role;
+    final notesOwnerKey = role == 'gm' ? 'gm' : 'player:${widget.character.syncId}';
+    final notesTitle = role == 'gm' ? 'Заметки ГМ' : 'Заметки игрока';
 
     return DefaultTabController(
       length: 2,
       child: Scaffold(
         appBar: AppBar(
           title: Text(character.name),
+          actions: [
+            if (activeBattle != null)
+              IconButton(
+                tooltip: notesTitle,
+                icon: const Icon(Icons.sticky_note_2_outlined),
+                onPressed: () => showBattleNotesSheet(
+                  context,
+                  sessionKey: notesSessionKey,
+                  ownerKey: notesOwnerKey,
+                  title: notesTitle,
+                ),
+              ),
+          ],
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Обзор'),
@@ -839,6 +870,7 @@ class _BattleCharacterViewScreenState
       effectFormula: effectFormula,
       effectType: effectType,
       conditions: conditions,
+      actionSyncId: actionSyncId,
     );
     if (result == null || !mounted) return;
 

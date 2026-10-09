@@ -80,6 +80,8 @@ class BattleActionRequestCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final attackRolls = request.metadata['attack_rolls'];
+    final effectRolls = request.metadata['effect_rolls'];
     final statusLabel = switch (request.status) {
       BattleActionRequestStatus.declared => 'Объявлено',
       BattleActionRequestStatus.pendingGm => 'Ожидает решения ГМ',
@@ -121,6 +123,10 @@ class BattleActionRequestCard extends StatelessWidget {
               Text(
                 '${_effectLabel(request.effectType)}: ${request.effectTotal}${request.effectFormula.isEmpty ? '' : ' · ${request.effectFormula}'}',
               ),
+            if (attackRolls is List && attackRolls.isNotEmpty)
+              Text('Кости атаки: ${attackRolls.join(', ')}'),
+            if (effectRolls is List && effectRolls.isNotEmpty)
+              Text('Кости урона/эффекта: ${effectRolls.join(', ')}'),
             if (request.resolutionNote.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(

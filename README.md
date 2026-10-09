@@ -2,8 +2,8 @@
 
 A local-first, cross-platform D&D character manager built with Flutter — a fast, offline digital character sheet for use during actual game sessions.
 
-**Current version:** `v1.0.0`  
-**Status:** `v1.0.0` completes the planned core product: character management, local library, import/export, campaigns, GM mode, local LAN sync, Battle, Session Workspace and Gameplay State. After v1.0.0, there is no fixed feature roadmap; the project is developed iteratively based on real-world use, bugs, feedback, needs and new ideas.  
+**Current version:** `v1.0.3`  
+**Status:** `v1.0.0` completes the planned core product: character management, local library, import/export, campaigns, GM mode, local LAN sync, Battle, Session Workspace and Gameplay State. `v1.0.1` improved character stat entry, battle-roll tracking, rejection history and LAN player capacity. `v1.0.2` adds resumable battle-action drafts, selectable character level with matching XP, and separate local battle notes for the GM and each player. `v1.0.3` improves game discovery readability on phones and automatically updates proficiency bonus when the character levels up. After v1.0.0, there is no fixed feature roadmap; the project is developed iteratively based on real-world use, bugs, feedback, needs and new ideas.  
 **Author:** [@MazZzoxa](https://github.com/MazZzoxa)
 
 🇬🇧 [English](#-dd-hub) · 🇷🇺 [Русский](#-dd-hub-1)

@@ -46,6 +46,7 @@ Future<BattleActionComposerResult?> showBattleActionComposer(
   String effectFormula = '',
   BattleEffectType effectType = BattleEffectType.none,
   List<CharacterConditionModel> conditions = const [],
+  String actionSyncId = '',
 }) async {
   return showModalBottomSheet<BattleActionComposerResult>(
     context: context,
@@ -60,6 +61,7 @@ Future<BattleActionComposerResult?> showBattleActionComposer(
       initialEffectFormula: effectFormula,
       initialEffectType: effectType,
       conditions: conditions,
+      draftKey: '${actor.syncId}|${actionType.dbValue}|${actionSyncId.isNotEmpty ? actionSyncId : actionName}',
     ),
   );
 }
@@ -73,6 +75,7 @@ class _BattleActionComposerSheet extends StatefulWidget {
   final String initialEffectFormula;
   final BattleEffectType initialEffectType;
   final List<CharacterConditionModel> conditions;
+  final String draftKey;
 
   const _BattleActionComposerSheet({
     required this.actionName,
@@ -83,6 +86,7 @@ class _BattleActionComposerSheet extends StatefulWidget {
     required this.initialEffectFormula,
     required this.initialEffectType,
     required this.conditions,
+    required this.draftKey,
   });
 
   @override
@@ -92,6 +96,8 @@ class _BattleActionComposerSheet extends StatefulWidget {
 
 class _BattleActionComposerSheetState
     extends State<_BattleActionComposerSheet> {
+  static final Map<String, Map<String, dynamic>> _drafts = {};
+
   final DiceService _dice = DiceService();
   late final TextEditingController _externalTarget;
   late final TextEditingController _attackFormula;
@@ -113,32 +119,88 @@ class _BattleActionComposerSheetState
   String _error = '';
   bool _saveAction = false;
   String _conditionSyncId = '';
+  bool _submitted = false;
 
   @override
   void initState() {
     super.initState();
-    _externalTarget = TextEditingController();
-    _actionName = TextEditingController(text: widget.actionName);
-    _description = TextEditingController();
-    _conditionName = TextEditingController();
-    _conditionDescription = TextEditingController();
-    _durationRounds = TextEditingController(text: '1');
+    final draft = _drafts[widget.draftKey];
+    _externalTarget = TextEditingController(text: draft?['externalTarget']?.toString() ?? '');
+    _actionName = TextEditingController(text: draft?['actionName']?.toString() ?? widget.actionName);
+    _description = TextEditingController(text: draft?['description']?.toString() ?? '');
+    _conditionName = TextEditingController(text: draft?['conditionName']?.toString() ?? '');
+    _conditionDescription = TextEditingController(text: draft?['conditionDescription']?.toString() ?? '');
+    _durationRounds = TextEditingController(text: draft?['durationRounds']?.toString() ?? '1');
     final initialFormula = widget.initialAttackFormula.trim();
     _attackFormula = TextEditingController(
-      text: initialFormula.isEmpty ? '1к20' : initialFormula,
+      text: draft?['attackFormula']?.toString() ?? (initialFormula.isEmpty ? '1к20' : initialFormula),
     );
-    _effectFormula = TextEditingController(text: widget.initialEffectFormula);
-    _effectType = widget.initialEffectType;
-    for (final character in widget.allies) {
-      if (character.syncId != widget.actor.syncId) {
-        _allySyncId = character.syncId;
-        break;
-      }
+    _effectFormula = TextEditingController(
+      text: draft?['effectFormula']?.toString() ?? widget.initialEffectFormula,
+    );
+    _targetType = BattleTargetTypeX.fromDb(draft?['targetType']?.toString());
+    _allySyncId = draft?['allySyncId']?.toString() ?? '';
+    _effectType = draft == null
+        ? widget.initialEffectType
+        : BattleEffectTypeX.fromDb(draft['effectType']?.toString());
+    _attackTotal = (draft?['attackTotal'] as num?)?.toInt();
+    _effectTotal = (draft?['effectTotal'] as num?)?.toInt();
+    _attackRawTotal = (draft?['attackRawTotal'] as num?)?.toInt();
+    _attackRolls = (draft?['attackRolls'] as List?)?.whereType<num>().map((value) => value.toInt()).toList() ?? const [];
+    _effectRolls = (draft?['effectRolls'] as List?)?.whereType<num>().map((value) => value.toInt()).toList() ?? const [];
+    _saveAction = draft?['saveAction'] == true;
+    _conditionSyncId = draft?['conditionSyncId']?.toString() ?? '';
+    final validAllyIds = widget.allies
+        .where((character) => character.syncId != widget.actor.syncId)
+        .map((character) => character.syncId)
+        .where((syncId) => syncId.isNotEmpty)
+        .toSet();
+    if (!validAllyIds.contains(_allySyncId)) {
+      _allySyncId = validAllyIds.isEmpty ? '' : validAllyIds.first;
     }
+    if (!widget.conditions.any((condition) => condition.syncId == _conditionSyncId)) {
+      _conditionSyncId = '';
+    }
+    for (final controller in [
+      _externalTarget, _attackFormula, _effectFormula, _actionName, _description,
+      _conditionName, _conditionDescription, _durationRounds,
+    ]) {
+      controller.addListener(_persistDraft);
+    }
+  }
+
+  void _persistDraft() {
+    _drafts[widget.draftKey] = {
+      'externalTarget': _externalTarget.text,
+      'attackFormula': _attackFormula.text,
+      'effectFormula': _effectFormula.text,
+      'actionName': _actionName.text,
+      'description': _description.text,
+      'conditionName': _conditionName.text,
+      'conditionDescription': _conditionDescription.text,
+      'durationRounds': _durationRounds.text,
+      'targetType': _targetType.dbValue,
+      'allySyncId': _allySyncId,
+      'effectType': _effectType.dbValue,
+      'attackTotal': _attackTotal,
+      'effectTotal': _effectTotal,
+      'attackRawTotal': _attackRawTotal,
+      'attackRolls': List<int>.from(_attackRolls),
+      'effectRolls': List<int>.from(_effectRolls),
+      'saveAction': _saveAction,
+      'conditionSyncId': _conditionSyncId,
+    };
   }
 
   @override
   void dispose() {
+    if (!_submitted) _persistDraft();
+    for (final controller in [
+      _externalTarget, _attackFormula, _effectFormula, _actionName, _description,
+      _conditionName, _conditionDescription, _durationRounds,
+    ]) {
+      controller.removeListener(_persistDraft);
+    }
     _externalTarget.dispose();
     _attackFormula.dispose();
     _effectFormula.dispose();
@@ -151,6 +213,7 @@ class _BattleActionComposerSheetState
   }
 
   void _rollAttack() {
+    if (_attackTotal != null) return;
     try {
       final result = _dice.roll(_attackFormula.text);
       setState(() {
@@ -159,12 +222,14 @@ class _BattleActionComposerSheetState
         _attackRolls = result.rolls;
         _error = '';
       });
+      _persistDraft();
     } catch (error) {
       setState(() => _error = '$error');
     }
   }
 
   void _rollEffect() {
+    if (_effectTotal != null) return;
     try {
       final result = _dice.roll(_effectFormula.text);
       setState(() {
@@ -172,6 +237,7 @@ class _BattleActionComposerSheetState
         _effectRolls = result.rolls;
         _error = '';
       });
+      _persistDraft();
     } catch (error) {
       setState(() => _error = '$error');
     }
@@ -230,6 +296,8 @@ class _BattleActionComposerSheetState
       return;
     }
 
+    _submitted = true;
+    _drafts.remove(widget.draftKey);
     Navigator.of(context).pop(
       BattleActionComposerResult(
         actionName: selectedName,
@@ -306,6 +374,14 @@ class _BattleActionComposerSheetState
                   _actionTypeLabel(widget.actionType),
                   style: const TextStyle(color: AppTheme.textSecondary),
                 ),
+                IconButton(
+                  tooltip: 'Свернуть с сохранением',
+                  onPressed: () {
+                    _persistDraft();
+                    Navigator.of(context).pop();
+                  },
+                  icon: const Icon(Icons.keyboard_arrow_down),
+                ),
               ],
             ),
             if (widget.actionType == BattleActionType.manual) ...[
@@ -313,7 +389,7 @@ class _BattleActionComposerSheetState
               const SizedBox(height: 10),
               TextField(controller: _description, minLines: 2, maxLines: 5, decoration: const InputDecoration(labelText: 'Описание', alignLabelWithHint: true)),
               const SizedBox(height: 10),
-              SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Сохранить действие'), subtitle: const Text('Добавить в список собственных действий персонажа'), value: _saveAction, onChanged: (value) => setState(() => _saveAction = value)),
+              SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Сохранить действие'), subtitle: const Text('Добавить в список собственных действий персонажа'), value: _saveAction, onChanged: (value) { setState(() => _saveAction = value); _persistDraft(); }),
             ],
             const SizedBox(height: 16),
             DropdownButtonFormField<BattleTargetType>(
@@ -336,6 +412,7 @@ class _BattleActionComposerSheetState
               onChanged: (value) {
                 if (value == null) return;
                 setState(() => _targetType = value);
+                _persistDraft();
               },
             ),
             if (_targetType == BattleTargetType.ally) ...[
@@ -351,7 +428,7 @@ class _BattleActionComposerSheetState
                         child: Text(character.name),
                       ),
                 ],
-                onChanged: (value) => setState(() => _allySyncId = value ?? ''),
+                onChanged: (value) { setState(() => _allySyncId = value ?? ''); _persistDraft(); },
               ),
             ],
             if (_targetType == BattleTargetType.external) ...[
@@ -378,11 +455,14 @@ class _BattleActionComposerSheetState
               resultLabel: 'Результат попадания',
               onRoll: _rollAttack,
               enabled: _attackFormula.text.trim().isNotEmpty,
-              onChanged: (_) => setState(() {
-                _attackTotal = null;
-                _attackRawTotal = null;
-                _attackRolls = const [];
-              }),
+              onChanged: (_) {
+                setState(() {
+                  _attackTotal = null;
+                  _attackRawTotal = null;
+                  _attackRolls = const [];
+                });
+                _persistDraft();
+              },
             ),
             const SizedBox(height: 16),
             const Text(
@@ -413,16 +493,17 @@ class _BattleActionComposerSheetState
                 DropdownMenuItem(value: BattleEffectType.conditionApply, child: Text('Наложить состояние')),
                 DropdownMenuItem(value: BattleEffectType.conditionRemove, child: Text('Снять состояние')),
               ],
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() {
-                  _effectType = value;
-                  if (value == BattleEffectType.none || value == BattleEffectType.conditionApply || value == BattleEffectType.conditionRemove) {
-                    _effectTotal = null;
-                    _effectRolls = const [];
-                  }
-                });
-              },
+              onChanged: _effectTotal != null
+                  ? null
+                  : (value) {
+                      if (value == null) return;
+                      setState(() {
+                        _effectType = value;
+                        _effectTotal = null;
+                        _effectRolls = const [];
+                      });
+                      _persistDraft();
+                    },
             ),
             if (_effectType == BattleEffectType.conditionApply) ...[
               const SizedBox(height: 12),
@@ -436,7 +517,7 @@ class _BattleActionComposerSheetState
               if (widget.conditions.isEmpty)
                 const Text('У этого персонажа нет активных состояний.', style: TextStyle(color: AppTheme.textSecondary))
               else
-                DropdownButtonFormField<String>(value: _conditionSyncId.isEmpty ? null : _conditionSyncId, decoration: const InputDecoration(labelText: 'Состояние'), items: [for (final condition in widget.conditions) DropdownMenuItem(value: condition.syncId, child: Text(condition.name))], onChanged: (value) => setState(() => _conditionSyncId = value ?? '')),
+                DropdownButtonFormField<String>(value: _conditionSyncId.isEmpty ? null : _conditionSyncId, decoration: const InputDecoration(labelText: 'Состояние'), items: [for (final condition in widget.conditions) DropdownMenuItem(value: condition.syncId, child: Text(condition.name))], onChanged: (value) { setState(() => _conditionSyncId = value ?? ''); _persistDraft(); }),
             ] else if (_effectType != BattleEffectType.none) ...[
               const SizedBox(height: 12),
               _RollField(
@@ -460,10 +541,13 @@ class _BattleActionComposerSheetState
                 total: _effectTotal,
                 onRoll: _rollEffect,
                 enabled: _effectFormula.text.trim().isNotEmpty,
-                onChanged: (_) => setState(() {
-                  _effectTotal = null;
-                  _effectRolls = const [];
-                }),
+                onChanged: (_) {
+                  setState(() {
+                    _effectTotal = null;
+                    _effectRolls = const [];
+                  });
+                  _persistDraft();
+                },
               ),
             ],
             if (_error.isNotEmpty) ...[
@@ -514,12 +598,13 @@ class _RollField extends StatelessWidget {
       children: [
         TextField(
           controller: controller,
+          readOnly: total != null,
           decoration: InputDecoration(
             labelText: title,
             hintText: hint,
             suffixIcon: IconButton(
-              tooltip: 'Бросить кубики',
-              onPressed: enabled ? onRoll : null,
+              tooltip: total != null ? 'Бросок уже выполнен' : 'Бросить кубики',
+              onPressed: enabled && total == null ? onRoll : null,
               icon: const Icon(Icons.casino_outlined),
             ),
           ),

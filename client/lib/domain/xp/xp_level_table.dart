@@ -30,6 +30,13 @@ class XpLevelTable {
     return 1;
   }
 
+  /// D&D 5e proficiency bonus by character level.
+  /// Levels 1–4: +2, 5–8: +3, 9–12: +4, 13–16: +5, 17–20: +6.
+  static int proficiencyBonusForLevel(int level) {
+    final safeLevel = level.clamp(1, 20);
+    return 2 + ((safeLevel - 1) ~/ 4);
+  }
+
   static int xpForLevel(int level) {
     final safeLevel = level.clamp(1, 20);
     return thresholds[safeLevel - 1];

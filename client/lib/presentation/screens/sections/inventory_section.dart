@@ -254,7 +254,11 @@ class _CategoryBlock extends StatelessWidget {
               children: [
                 for (int i = 0; i < items.length; i++) ...[
                   if (i > 0) const Divider(height: 1, indent: 16, endIndent: 16),
-                  _ItemRow(item: items[i], characterId: characterId),
+                  _ItemRow(
+                    key: ValueKey(items[i].id ?? items[i].syncId),
+                    item: items[i],
+                    characterId: characterId,
+                  ),
                 ],
               ],
             ),
@@ -265,42 +269,176 @@ class _CategoryBlock extends StatelessWidget {
   }
 }
 
-class _ItemRow extends StatelessWidget {
+/// Строка предмета: в свёрнутом виде — название, вес и быстрые действия
+/// с количеством; по нажатию на строку раскрывается полное описание.
+/// Редактирование запускается отдельной кнопкой (карандаш).
+class _ItemRow extends StatefulWidget {
   final ItemModel item;
   final int characterId;
 
-  const _ItemRow({required this.item, required this.characterId});
+  const _ItemRow({super.key, required this.item, required this.characterId});
+
+  @override
+  State<_ItemRow> createState() => _ItemRowState();
+}
+
+class _ItemRowState extends State<_ItemRow> {
+  bool _expanded = false;
+
+  String _params(ItemModel item) {
+    final parts = <String>[];
+    if (item.weight > 0) {
+      parts.add('Вес: ${_formatNumber(item.weight)} фнт.');
+      if (item.quantity > 1) {
+        parts.add('всего ${_formatNumber(item.weight * item.quantity)} фнт.');
+      }
+    }
+    return parts.join(' · ');
+  }
 
   @override
   Widget build(BuildContext context) {
+    final item = widget.item;
     final provider = context.read<InventoryProvider>();
-    return ListTile(
-      onTap: () => _InventorySectionState._showItemDialog(
-        context,
-        characterId: characterId,
-        existing: item,
-      ),
-      title: Text(item.name),
-      subtitle: item.description.isNotEmpty ? Text(item.description) : null,
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.remove_circle_outline),
-            onPressed: () => provider.adjustQuantity(item, -1),
-          ),
-          SizedBox(
-            width: 26,
-            child: Text('${item.quantity}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontWeight: FontWeight.bold)),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add_circle_outline),
-            onPressed: () => provider.adjustQuantity(item, 1),
-          ),
-        ],
+    final params = _params(item);
+
+    return InkWell(
+      onTap: () => setState(() => _expanded = !_expanded),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  _expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 20,
+                  color: AppTheme.textSecondary,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                      ),
+                      if (params.isNotEmpty)
+                        Text(
+                          params,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                        ),
+                    ],
+                  ),
+                ),
+                _RowIconButton(
+                  icon: Icons.remove_circle_outline,
+                  tooltip: 'Уменьшить количество',
+                  onPressed: () => provider.adjustQuantity(item, -1),
+                ),
+                SizedBox(
+                  width: 26,
+                  child: Text('${item.quantity}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                ),
+                _RowIconButton(
+                  icon: Icons.add_circle_outline,
+                  tooltip: 'Увеличить количество',
+                  onPressed: () => provider.adjustQuantity(item, 1),
+                ),
+                _RowIconButton(
+                  icon: Icons.edit_outlined,
+                  tooltip: 'Редактировать',
+                  color: AppTheme.textSecondary,
+                  onPressed: () => _InventorySectionState._showItemDialog(
+                    context,
+                    characterId: widget.characterId,
+                    existing: item,
+                  ),
+                ),
+              ],
+            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: _expanded
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(26, 6, 10, 8),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item.description.isEmpty
+                                  ? 'Описание отсутствует.'
+                                  : item.description,
+                              style: TextStyle(
+                                fontSize: 13,
+                                height: 1.35,
+                                color: item.description.isEmpty
+                                    ? AppTheme.textSecondary
+                                    : AppTheme.textPrimary,
+                              ),
+                            ),
+                            if (item.sourceUrl.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                'Источник: ${item.sourceUrl}',
+                                style: const TextStyle(
+                                    fontSize: 12, color: AppTheme.textSecondary),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    )
+                  : const SizedBox(width: double.infinity),
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+/// Компактная кнопка для строки списка (ширина 36, высота 40).
+class _RowIconButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+  final Color? color;
+
+  const _RowIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: Icon(icon, size: 22),
+      color: color,
+      tooltip: tooltip,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 36, height: 40),
+      onPressed: onPressed,
+    );
+  }
+}
+
+String _formatNumber(double value) {
+  var s = value.toStringAsFixed(2);
+  if (s.contains('.')) {
+    s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+  }
+  return s;
 }

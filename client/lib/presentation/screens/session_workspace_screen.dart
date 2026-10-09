@@ -722,6 +722,25 @@ class _HistoryTab extends StatelessWidget {
     };
     if (entry.amount != null) action = '$action · ${entry.amount}';
     if (route.isNotEmpty) action = '$action · $route';
+
+    if (entry.type == 'attack_roll' ||
+        entry.type == 'damage_roll' ||
+        entry.type == 'healing_roll') {
+      final formula = entry.metadata['formula']?.toString().trim() ?? '';
+      if (formula.isNotEmpty) action = '$action · $formula';
+      final rolls = entry.metadata['rolls'];
+      if (rolls is List && rolls.isNotEmpty) {
+        action = '$action · кости: ${rolls.join(', ')}';
+      }
+    }
+
+    if (entry.type == 'action_rejected') {
+      final reason = (entry.metadata['note'] ?? entry.metadata['reason'])
+              ?.toString()
+              .trim() ??
+          '';
+      if (reason.isNotEmpty) action = '$action · Причина: $reason';
+    }
     return action;
   }
 

@@ -4,6 +4,7 @@ import '../database/database_helper.dart';
 import '../models/character_model.dart';
 import '../models/xp_transaction_model.dart';
 import '../../network/services/sync_ids.dart';
+import '../../domain/xp/xp_level_table.dart';
 
 class XpRepository {
   final DatabaseHelper _database = DatabaseHelper.instance;
@@ -31,7 +32,11 @@ class XpRepository {
     return db.transaction((txn) async {
       final updated = await txn.update(
         'characters',
-        {'xp': newXp, 'level': newLevel},
+        {
+          'xp': newXp,
+          'level': newLevel,
+          'proficiency_bonus': XpLevelTable.proficiencyBonusForLevel(newLevel),
+        },
         where: 'id = ?',
         whereArgs: [characterId],
       );
@@ -58,7 +63,11 @@ class XpRepository {
     final db = await _database.database;
     await db.update(
       'characters',
-      {'level': character.level, 'xp': character.xp},
+      {
+        'level': character.level,
+        'xp': character.xp,
+        'proficiency_bonus': XpLevelTable.proficiencyBonusForLevel(character.level),
+      },
       where: 'id = ?',
       whereArgs: [character.id],
     );

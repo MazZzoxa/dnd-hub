@@ -601,7 +601,7 @@ class _EmptyState extends StatelessWidget {
             Text(
               hasFilter
                   ? 'Попробуйте изменить поиск или фильтр'
-                  : 'Добавьте предметы, заклинания и способности, чтобы переиспользовать их для разных персонажей',
+                  : 'Добавьте предметы, заклинания и способности, чтобы потом использовать их для разных персонажей',
               textAlign: TextAlign.center,
               style: const TextStyle(color: AppTheme.textSecondary),
             ),

@@ -271,17 +271,109 @@ class _NetworkScreenState extends State<NetworkScreen> {
           if (_games.isEmpty)
             const Text('Игры не найдены.', style: TextStyle(color: AppTheme.textSecondary))
           else
-            ..._games.map((game) => Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: const CircleAvatar(child: Icon(Icons.casino_outlined)),
-                    title: Text(game.campaignName),
-                    subtitle: Text('${game.gmName} · ${game.players}/${game.maxPlayers} игроков · ${game.host}:${game.port}'),
-                    trailing: FilledButton(onPressed: () => _join(manager, game), child: const Text('Подключиться')),
-                  ),
-                )),
+            ..._games.map((game) => _nearbyGameCard(manager, game)),
         ]),
       ),
+    );
+  }
+
+  Widget _nearbyGameCard(ConnectionManager manager, NearbyGame game) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 420;
+
+            Widget campaignHeading() => Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const CircleAvatar(
+                      radius: 20,
+                      child: Icon(Icons.casino_outlined),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        game.campaignName,
+                        softWrap: true,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                      ),
+                    ),
+                  ],
+                );
+
+            Widget campaignDetails() => Padding(
+                  padding: EdgeInsets.only(left: compact ? 2 : 50, top: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _gameInfoLine(Icons.person_outline, 'ГМ: ${game.gmName}'),
+                      const SizedBox(height: 4),
+                      _gameInfoLine(
+                        Icons.groups_outlined,
+                        'Игроков: ${game.players}${game.maxPlayers == null ? ' · без лимита' : '/${game.maxPlayers}'}',
+                      ),
+                      const SizedBox(height: 4),
+                      _gameInfoLine(Icons.wifi_outlined, '${game.host}:${game.port}'),
+                    ],
+                  ),
+                );
+
+            final joinButton = FilledButton.icon(
+              onPressed: () => _join(manager, game),
+              icon: const Icon(Icons.login, size: 18),
+              label: const Text('Подключиться'),
+            );
+
+            if (compact) {
+              // On phones the action gets its own row so it cannot squeeze
+              // the campaign name, player count, or LAN address into columns.
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  campaignHeading(),
+                  campaignDetails(),
+                  const SizedBox(height: 12),
+                  SizedBox(width: double.infinity, child: joinButton),
+                ],
+              );
+            }
+
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [campaignHeading(), campaignDetails()],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                joinButton,
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _gameInfoLine(IconData icon, String text) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: AppTheme.textSecondary),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            text,
+            softWrap: true,
+            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+          ),
+        ),
+      ],
     );
   }
 

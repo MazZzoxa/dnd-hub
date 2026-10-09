@@ -1,6 +1,6 @@
 # D&D Hub GM Server
 
-Local FastAPI/WebSocket server for D&D Hub LAN sessions (`v1.0.0`). It is started automatically by `Host Game` in the Flutter desktop client. The server keeps the authoritative campaign state and ordered event history in memory for the lifetime of the GM session.
+Local FastAPI/WebSocket server for D&D Hub LAN sessions (`v1.0.1`). It is started automatically by `Host Game` in the Flutter desktop client. The server keeps the authoritative campaign state and ordered event history in memory for the lifetime of the GM session.
 
 ## Manual run
 
@@ -33,7 +33,7 @@ The LAN server provides:
 - reconnect-safe replacement of a previous connection using the same `client_id`;
 - campaign/entity scope validation.
 
-The v1.0.0 server provides authoritative Session Workspace and Gameplay State for:
+The v1.0.1 server provides authoritative Session Workspace and Gameplay State for:
 
 - `session_note`;
 - `session_event`;
@@ -54,3 +54,9 @@ The current release uses LAN/IP networking only. Wi-Fi P2P and Bluetooth transpo
 ## Automatic dependencies
 
 The launcher checks the Python environment and reuses a working `server/.venv` when available. Otherwise it installs the server requirements into `server/.deps` and adds that directory to the Python module path before importing FastAPI/Uvicorn + WebSocket support.
+
+
+## v1.0.1 changes
+
+- Player connections are unlimited; the legacy `max_players` constructor argument is ignored for compatibility.
+- Battle log entries retain the individual attack/effect die values alongside each formula and total.

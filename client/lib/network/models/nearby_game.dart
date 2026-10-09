@@ -5,7 +5,7 @@ class NearbyGame {
   final String campaignName;
   final String gmName;
   final int players;
-  final int maxPlayers;
+  final int? maxPlayers;
   final String inviteToken;
 
   const NearbyGame({
@@ -32,7 +32,7 @@ class NearbyGame {
       campaignName: json['campaign_name']?.toString() ?? 'D&D Hub',
       gmName: json['gm_name']?.toString() ?? 'ГМ',
       players: (json['players'] as num?)?.toInt() ?? 0,
-      maxPlayers: (json['max_players'] as num?)?.toInt() ?? 5,
+      maxPlayers: (json['max_players'] as num?)?.toInt(),
       inviteToken: json['invite_token']?.toString() ?? '',
     );
   }

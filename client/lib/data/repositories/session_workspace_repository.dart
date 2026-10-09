@@ -243,7 +243,16 @@ class SessionWorkspaceRepository {
         createdAt: now,
         createdBy: createdBy,
       );
-      await txn.update('characters', {'xp': newXp, 'level': newLevel}, where: 'id = ?', whereArgs: [character['id']]);
+      await txn.update(
+        'characters',
+        {
+          'xp': newXp,
+          'level': newLevel,
+          'proficiency_bonus': XpLevelTable.proficiencyBonusForLevel(newLevel),
+        },
+        where: 'id = ?',
+        whereArgs: [character['id']],
+      );
       await txn.insert('session_rewards', reward.toMap()..remove('id'));
       final transaction = XpTransactionModel(
         syncId: SyncIds.newId(),
