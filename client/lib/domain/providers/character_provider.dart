@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
@@ -31,20 +32,33 @@ class CharacterProvider extends ChangeNotifier {
   CharacterModel? _selected;
   bool _loading = false;
   int _stateRevision = 0;
+  int _loadSeq = 0;
 
   List<CharacterModel> get characters => List.unmodifiable(_characters);
   CharacterModel? get selected => _selected;
   bool get loading => _loading;
 
   Future<void> loadCharacters() async {
+    final loadId = ++_loadSeq;
     final revision = ++_stateRevision;
     _loading = true;
     notifyListeners();
-    final characters = await _repository.getAll();
-    if (revision != _stateRevision) return;
-    _characters = characters;
-    _loading = false;
-    notifyListeners();
+    try {
+      final characters = await _repository.getAll();
+      // Более новое изменение состояния важнее результата этого чтения.
+      if (revision == _stateRevision) {
+        _characters = characters;
+      }
+    } catch (error, stackTrace) {
+      // Раньше исключение здесь оставляло _loading = true навсегда
+      // (бесконечная загрузка). Теперь индикатор гарантированно гасится.
+      debugPrint('loadCharacters failed: $error\n$stackTrace');
+    } finally {
+      if (loadId == _loadSeq) {
+        _loading = false;
+        notifyListeners();
+      }
+    }
   }
 
   void selectCharacter(CharacterModel character) {
@@ -65,7 +79,11 @@ class CharacterProvider extends ChangeNotifier {
       syncId: character.syncId.isEmpty ? SyncIds.newId() : character.syncId,
     );
     final id = await _repository.create(normalized);
-    final created = normalized.copyWith(id: id);
+    var created = normalized.copyWith(id: id);
+    if (normalized.bioImageBase64.isNotEmpty) {
+      // В БД большое изображение заменяется миниатюрой — берём актуальную строку.
+      created = await _repository.getById(id) ?? created;
+    }
     _characters.add(created);
     _selected = created;
     notifyListeners();
@@ -89,6 +107,36 @@ class CharacterProvider extends ChangeNotifier {
     if (!_applyingRemote) {
       await _syncService?.publishCharacter(normalized);
     }
+  }
+
+  /// Полное изображение био (base64) без ограничения размера.
+  Future<String> loadFullBioImage(int characterId) {
+    return _repository.loadFullBioImage(characterId);
+  }
+
+  /// Сохраняет изображение био любого размера. Изображение локальное:
+  /// в синхронизацию с GM оно не отправляется (как и раньше).
+  Future<void> setBioImage(int characterId, Uint8List bytes) async {
+    final stored = await _repository.setBioImage(characterId, bytes);
+    _applyBioImage(characterId, stored);
+  }
+
+  Future<void> clearBioImage(int characterId) async {
+    await _repository.clearBioImage(characterId);
+    _applyBioImage(characterId, '');
+  }
+
+  void _applyBioImage(int characterId, String value) {
+    ++_stateRevision;
+    final index = _characters.indexWhere((c) => c.id == characterId);
+    if (index != -1) {
+      _characters[index] = _characters[index].copyWith(bioImageBase64: value);
+    }
+    final selected = _selected;
+    if (selected != null && selected.id == characterId) {
+      _selected = selected.copyWith(bioImageBase64: value);
+    }
+    notifyListeners();
   }
 
   Future<void> deleteCharacter(int id) async {

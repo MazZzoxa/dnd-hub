@@ -2,8 +2,8 @@
 
 A local-first, cross-platform D&D character manager built with Flutter — a fast, offline digital character sheet for use during actual game sessions.
 
-**Current version:** `v1.0.3`  
-**Status:** `v1.0.0` completes the planned core product: character management, local library, import/export, campaigns, GM mode, local LAN sync, Battle, Session Workspace and Gameplay State. `v1.0.1` improved character stat entry, battle-roll tracking, rejection history and LAN player capacity. `v1.0.2` adds resumable battle-action drafts, selectable character level with matching XP, and separate local battle notes for the GM and each player. `v1.0.3` improves game discovery readability on phones and automatically updates proficiency bonus when the character levels up. After v1.0.0, there is no fixed feature roadmap; the project is developed iteratively based on real-world use, bugs, feedback, needs and new ideas.  
+**Current version:** `v1.0.5`  
+**Status:** `v1.0.0` completes the planned core product: character management, local library, import/export, campaigns, GM mode, local LAN sync, Battle, Session Workspace and Gameplay State. `v1.0.1` improved character stat entry, battle-roll tracking, rejection history and LAN player capacity. `v1.0.2` added resumable battle-action drafts, selectable character level with matching XP, and separate local battle notes for the GM and each player. `v1.0.3` improved game discovery readability on phones and automatically updates proficiency bonus when the character levels up. `v1.0.5` fixes campaign linking for imported characters and Android loading of characters with large Bio images. After v1.0.0, there is no fixed feature roadmap; the project is developed iteratively based on real-world use, bugs, feedback, needs and new ideas.  
 **Author:** [@MazZzoxa](https://github.com/MazZzoxa)
 
 🇬🇧 [English](#-dd-hub) · 🇷🇺 [Русский](#-dd-hub-1)
@@ -22,6 +22,13 @@ D&D Hub is a local-first digital D&D character manager designed to be used direc
 
 The main principle is **local-first**: no account and no mandatory Internet connection are required. Character, campaign and progression data remain stored locally in SQLite. During a hosted local game, the GM runs a temporary local FastAPI/WebSocket server and player devices keep a local SQLite replica. The GM and Player use different campaign interfaces and permissions.
 
+### Recent fixes — v1.0.5
+
+- Imported characters now receive missing `sync_id` values for nested records such as inventory items, spells, abilities, attacks, notes, spell slots, XP history, custom actions and conditions. Missing IDs are also repaired when linking an already-imported character to a campaign, so re-importing is not required.
+- Large Bio images are stored separately in `character_images` and read in chunks, while the main character row keeps a thumbnail up to 256 px for lists and avatars. The previous 8 MB application limit has been removed.
+- Existing databases are migrated automatically on first launch. Full Bio images are preserved in character `.json` / `.dndhub` exports and backup/restore; routine character saves no longer overwrite the image.
+- Bio images are not synchronized to the GM over LAN. Full images are transferred through files/backups only, and GM character-card PDFs use the thumbnail.
+
 ### Features — v1.0.0
 
 **Character management**
@@ -36,6 +43,7 @@ The main principle is **local-first**: no account and no mandatory Internet conn
 - Freeform notes
 - Bio with appearance, personality traits, ideals, bonds, flaws, backstory and character image
 - Circular character avatars using the Bio image while preserving image proportions and quality
+- Large Bio images are stored separately from the main character row; lists and avatars use a 256 px thumbnail
 
 **Import / export and local library**
 
@@ -44,7 +52,8 @@ The main principle is **local-first**: no account and no mandatory Internet conn
 - Local Content Library for items, spells, abilities and other content
 - `.dndhub` character export/import
 - Full local backup / restore
-- XP history is preserved during character export/import
+- XP history and the full Bio image are preserved during character export/import
+- Imported nested records receive sync IDs, with missing IDs repaired automatically when linking a character to a campaign
 
 **Campaigns and GM Mode**
 
@@ -71,6 +80,7 @@ The main principle is **local-first**: no account and no mandatory Internet conn
 - Full campaign snapshots for initial state and recovery
 - Automatic reconnect with `resume(last_sequence)` and snapshot fallback
 - Local SQLite remains the persistent replica on every device
+- Bio images are not synchronized over LAN; full images are included in character files and backups
 
 **Battle Workspace — v0.6.1**
 
@@ -285,6 +295,13 @@ D&D Hub — кроссплатформенный **local-first** менедже�
 
 Главный принцип — **local-first**: аккаунт, сервер и обязательное подключение к Интернету не требуются. Данные персонажей, кампаний и прогрессии хранятся локально в SQLite. Во время локальной игры GM запускает временный локальный FastAPI/WebSocket-сервер, а устройства игроков сохраняют локальную SQLite-реплику. Интерфейсы и права GM и Player различаются.
 
+### Последние исправления — v1.0.5
+
+- При импорте персонажа создаются недостающие `sync_id` у вложенных записей: предметов, заклинаний, способностей, атак, заметок, ячеек заклинаний, истории XP, Custom Actions и состояний. Недостающие идентификаторы также восстанавливаются при привязке уже импортированного персонажа к кампании — повторный импорт не нужен.
+- Большие изображения Био хранятся отдельно в таблице `character_images` и читаются частями. В основной записи персонажа остаётся миниатюра до 256 px для списков и аватаров; прежний программный лимит в 8 МБ снят.
+- Существующие базы данных мигрируют автоматически при первом запуске. Полное изображение сохраняется при экспорте персонажа в `.json` / `.dndhub` и в резервной копии; обычное сохранение персонажа больше не перезаписывает изображение.
+- Изображения Био не синхронизируются с GM по LAN. Полное изображение передаётся только через файлы и резервные копии, а PDF-карточка персонажа в режиме GM использует миниатюру.
+
 ### Возможности — v1.0.0
 
 **Персонажи**
@@ -299,6 +316,7 @@ D&D Hub — кроссплатформенный **local-first** менедже�
 - Свободные заметки
 - Био с внешностью, чертами характера, идеалами, привязанностями, слабостями, предысторией и изображением персонажа
 - Круглый аватар персонажа на основе изображения из Био с сохранением пропорций и качества
+- Большие изображения Био хранятся отдельно от основной записи персонажа; в списках и аватарах используется миниатюра 256 px
 
 **Импорт, экспорт и библиотека**
 
@@ -307,7 +325,8 @@ D&D Hub — кроссплатформенный **local-first** менедже�
 - Локальная библиотека контента для предметов, заклинаний, способностей и других объектов
 - Экспорт/импорт персонажа в `.dndhub`
 - Полный локальный backup/restore
-- История XP сохраняется при экспорте/импорте персонажа
+- История XP и полное изображение Био сохраняются при экспорте/импорте персонажа
+- При импорте вложенным записям назначаются sync ID; недостающие идентификаторы автоматически восстанавливаются при привязке персонажа к кампании
 
 **Кампании и GM Mode**
 
@@ -367,6 +386,7 @@ D&D Hub — кроссплатформенный **local-first** менедже�
 - GM Server хранит authoritative state текущей LAN-сессии и нумерует события последовательностью.
 - При обрыве соединения клиент автоматически пытается переподключиться; после reconnect отправляется `resume` по последнему sequence, а при необходимости сервер отдаёт полный snapshot.
 - Локальная SQLite остаётся постоянной репликой; серверная память существует только в рамках запущенной GM-сессии.
+- Изображения Био не синхронизируются по LAN; полные изображения входят в файлы персонажей и резервные копии.
 - Wi-Fi P2P и Bluetooth пока не являются частью реализованного `v0.5.0` и остаются отложенными transport-опциями.
 
 ### Battle Workspace — v0.6.1

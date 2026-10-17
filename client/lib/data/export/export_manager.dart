@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:file_saver/file_saver.dart';
 
 import '../database/database_helper.dart';
+import '../repositories/bio_image_store.dart';
 import '../models/character_model.dart';
 import '../models/item_model.dart';
 import '../models/spell_model.dart';
@@ -39,6 +40,11 @@ class ExportManager {
     if (id == null) throw StateError('Нельзя экспортировать персонажа без id.');
 
     final db = await _db.database;
+    await BioImageStore.migrateOversized(db);
+    // В файл всегда попадает полное изображение био (без миниатюр и лимитов),
+    // чтобы вместе с персонажем передавалась и его картинка.
+    final characterPayload = _characterMap(character);
+    characterPayload['bio_image'] = await BioImageStore.readFull(db, id);
     final itemRows = await db.query('items', where: 'character_id = ?', whereArgs: [id], orderBy: 'category, name COLLATE NOCASE');
     final spellRows = await db.query('spells', where: 'character_id = ?', whereArgs: [id], orderBy: 'level, name COLLATE NOCASE');
     final abilityRows = await db.query('abilities', where: 'character_id = ?', whereArgs: [id], orderBy: 'sort_order, name COLLATE NOCASE');
@@ -77,7 +83,7 @@ class ExportManager {
       'formatVersion': formatVersion,
       'exportType': 'character',
       'exportedAt': DateTime.now().toUtc().toIso8601String(),
-      'character': _characterMap(character),
+      'character': characterPayload,
       'inventory': itemRows.map(_cleanDbMap).toList(),
       'spells': spellRows.map(_cleanDbMap).toList(),
       'abilities': abilityRows.map(_cleanDbMap).toList(),
@@ -120,13 +126,15 @@ class ExportManager {
   /// сохраняются без преобразований.
   Future<String?> exportBackup() async {
     final db = await _db.database;
+    await BioImageStore.migrateOversized(db);
+    final characterColumns = await BioImageStore.safeSelectList(db);
 
     // Сериализуем через актуальные модели, а не напрямую через SQLite-строки.
     // Это не позволяет историческим/устаревшим колонкам из старой локальной
     // базы попасть в новый backup. Например, старые desktop-базы могли
     // содержать portrait_path, ability_generation_method или conditions.
     final tables = <String, List<Map<String, dynamic>>>{
-      'characters': (await db.query('characters', orderBy: 'id'))
+      'characters': (await db.rawQuery('SELECT $characterColumns FROM characters ORDER BY id'))
           .map(CharacterModel.fromMap)
           .map((model) => model.toMap())
           .toList(),
@@ -193,6 +201,15 @@ class ExportManager {
       'battleActionRequests': await db.query('battle_action_requests', orderBy: 'battle_sync_id, created_at, id'),
       'battleLogEntries': await db.query('battle_log_entries', orderBy: 'battle_sync_id, created_at, id'),
     };
+
+    // Полные изображения био кладём обратно в backup (в миниатюры БД они
+    // не превращаются), чтобы при восстановлении картинки не терялись.
+    for (final row in tables['characters']!) {
+      final characterId = row['id'];
+      if (characterId is int) {
+        row['bio_image'] = await BioImageStore.readFull(db, characterId);
+      }
+    }
 
     final payload = <String, dynamic>{
       'schema': schema,

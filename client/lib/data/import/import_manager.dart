@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../../network/services/sync_ids.dart';
 import 'dart:typed_data';
 
 import 'package:sqflite/sqflite.dart';
@@ -369,19 +370,19 @@ class ImportManager {
       for (final attack in draft.attacks) {
         final map = attack.toMap()..remove('id');
         map['character_id'] = characterId;
-        await txn.insert('attacks', map);
+        await txn.insert('attacks', _withSyncId(map));
       }
 
       for (final spell in draft.spells) {
         final map = spell.toMap()..remove('id');
         map['character_id'] = characterId;
-        await txn.insert('spells', map);
+        await txn.insert('spells', _withSyncId(map));
       }
 
       for (final item in draft.items) {
         final map = item.toMap()..remove('id');
         map['character_id'] = characterId;
-        await txn.insert('items', map);
+        await txn.insert('items', _withSyncId(map));
       }
 
       return ImportResult(
@@ -390,6 +391,14 @@ class ImportManager {
         importedCharacterId: characterId,
       );
     });
+  }
+
+  /// Imported child rows are inserted directly (not through repositories),
+  /// so guarantee a non-empty sync_id; otherwise LAN sync/linking fails.
+  Map<String, dynamic> _withSyncId(Map<String, dynamic> map) {
+    final current = map['sync_id']?.toString().trim() ?? '';
+    if (current.isEmpty) map['sync_id'] = SyncIds.newId();
+    return map;
   }
 
   Future<ImportResult> importBytes(Uint8List bytes) async {
@@ -987,7 +996,7 @@ class ImportManager {
         map.remove('id');
         map['library_item_id'] = _remapLibraryId(map['library_item_id'], libraryIdMap);
         final item = ItemModel.fromMap(map);
-        await txn.insert('items', item.toMap()..remove('id'));
+        await txn.insert('items', _withSyncId(item.toMap()..remove('id')));
       }
 
       for (final raw in _asList(payload['spells'])) {
@@ -996,7 +1005,7 @@ class ImportManager {
         map.remove('id');
         map['library_item_id'] = _remapLibraryId(map['library_item_id'], libraryIdMap);
         final spell = SpellModel.fromMap(map);
-        await txn.insert('spells', spell.toMap()..remove('id'));
+        await txn.insert('spells', _withSyncId(spell.toMap()..remove('id')));
       }
 
       for (final raw in _asList(payload['abilities'])) {
@@ -1005,7 +1014,7 @@ class ImportManager {
         map.remove('id');
         map['library_item_id'] = _remapLibraryId(map['library_item_id'], libraryIdMap);
         final ability = AbilityModel.fromMap(map);
-        await txn.insert('abilities', ability.toMap()..remove('id'));
+        await txn.insert('abilities', _withSyncId(ability.toMap()..remove('id')));
       }
 
       for (final raw in _asList(payload['attacks'])) {
@@ -1013,7 +1022,7 @@ class ImportManager {
         map['character_id'] = newCharacterId;
         map.remove('id');
         final attack = AttackModel.fromMap(map);
-        await txn.insert('attacks', attack.toMap()..remove('id'));
+        await txn.insert('attacks', _withSyncId(attack.toMap()..remove('id')));
       }
 
       for (final raw in _asList(payload['notes'])) {
@@ -1021,7 +1030,7 @@ class ImportManager {
         map['character_id'] = newCharacterId;
         map.remove('id');
         final note = NoteModel.fromMap(map);
-        await txn.insert('notes', note.toMap()..remove('id'));
+        await txn.insert('notes', _withSyncId(note.toMap()..remove('id')));
       }
 
       for (final raw in _asList(payload['customActions'])) {
@@ -1029,7 +1038,7 @@ class ImportManager {
         map['character_id'] = newCharacterId;
         map.remove('id');
         final action = CustomActionModel.fromMap(map);
-        await txn.insert('custom_actions', action.toMap()..remove('id'));
+        await txn.insert('custom_actions', _withSyncId(action.toMap()..remove('id')));
       }
 
       for (final raw in _asList(payload['conditions'])) {
@@ -1038,7 +1047,7 @@ class ImportManager {
         map['character_sync_id'] = character.syncId;
         map.remove('id');
         final condition = CharacterConditionModel.fromMap(map);
-        await txn.insert('character_conditions', condition.toMap()..remove('id'));
+        await txn.insert('character_conditions', _withSyncId(condition.toMap()..remove('id')));
       }
 
       for (final raw in _asList(payload['spellSlots'])) {

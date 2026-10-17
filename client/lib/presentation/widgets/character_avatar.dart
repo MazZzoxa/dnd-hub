@@ -38,6 +38,8 @@ class CharacterAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final bytes = _decodeImage();
     final diameter = radius * 2;
+    // Декодируем картинку сразу в размер аватара, а не в полное разрешение.
+    final cachePx = (diameter * MediaQuery.of(context).devicePixelRatio).ceil();
 
     return ClipOval(
       child: SizedBox(
@@ -61,6 +63,7 @@ class CharacterAvatar extends StatelessWidget {
                   fit: BoxFit.cover,
                   width: diameter,
                   height: diameter,
+                  cacheWidth: cachePx,
                   filterQuality: FilterQuality.high,
                   errorBuilder: (context, error, stackTrace) => Center(
                     child: Text(

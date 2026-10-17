@@ -78,18 +78,12 @@ class _BioSectionState extends State<BioSection> {
         return;
       }
 
-      const maxBytes = 8 * 1024 * 1024;
-      if (bytes.length > maxBytes) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Изображение слишком большое. Максимальный размер — 8 МБ.')),
-        );
-        return;
-      }
+      final characterId = current.id;
+      if (characterId == null) return;
 
-      await context.read<CharacterProvider>().updateCharacter(
-        current.copyWith(bioImageBase64: base64Encode(bytes)),
-      );
+      // Ограничения на размер нет: полное изображение хранится отдельно от
+      // строки персонажа и попадает в экспорт целиком.
+      await context.read<CharacterProvider>().setBioImage(characterId, bytes);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Изображение добавлено в био.')),
@@ -122,9 +116,9 @@ class _BioSectionState extends State<BioSection> {
     );
     if (confirmed != true || !context.mounted) return;
 
-    await context.read<CharacterProvider>().updateCharacter(
-      current.copyWith(bioImageBase64: ''),
-    );
+    final characterId = current.id;
+    if (characterId == null) return;
+    await context.read<CharacterProvider>().clearBioImage(characterId);
   }
 
   Future<void> _save(BuildContext context, CharacterModel current) async {
@@ -172,9 +166,7 @@ class _BioSectionState extends State<BioSection> {
             _BioImageCard(
               character: character,
               onPick: () => _pickBioImage(context, character),
-              onRemove: character.bioImageBase64.isEmpty
-                  ? null
-                  : () => _removeBioImage(context, character),
+              onRemove: () => _removeBioImage(context, character),
             ),
             const SizedBox(height: 16),
             const _SectionLabel('Внешность'),
@@ -244,10 +236,10 @@ class _BioSectionState extends State<BioSection> {
   }
 }
 
-class _BioImageCard extends StatelessWidget {
+class _BioImageCard extends StatefulWidget {
   final CharacterModel character;
   final VoidCallback onPick;
-  final VoidCallback? onRemove;
+  final VoidCallback onRemove;
 
   const _BioImageCard({
     required this.character,
@@ -255,10 +247,53 @@ class _BioImageCard extends StatelessWidget {
     required this.onRemove,
   });
 
-  Uint8List? _bytes() {
-    if (character.bioImageBase64.trim().isEmpty) return null;
+  @override
+  State<_BioImageCard> createState() => _BioImageCardState();
+}
+
+class _BioImageCardState extends State<_BioImageCard> {
+  Uint8List? _fullBytes;
+  int _loadToken = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFull();
+  }
+
+  @override
+  void didUpdateWidget(covariant _BioImageCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.character.id != widget.character.id ||
+        oldWidget.character.bioImageBase64 != widget.character.bioImageBase64) {
+      _fullBytes = null;
+      _loadFull();
+    }
+  }
+
+  /// В модели лежит только миниатюра, поэтому полное изображение
+  /// подгружается отдельно (кусками, без ограничения размера).
+  Future<void> _loadFull() async {
+    final token = ++_loadToken;
+    final id = widget.character.id;
+    if (id == null) return;
     try {
-      return base64Decode(character.bioImageBase64);
+      final encoded = await context.read<CharacterProvider>().loadFullBioImage(id);
+      if (!mounted || token != _loadToken) return;
+      setState(() {
+        _fullBytes = encoded.trim().isEmpty ? null : base64Decode(encoded);
+      });
+    } catch (_) {
+      if (!mounted || token != _loadToken) return;
+      setState(() => _fullBytes = null);
+    }
+  }
+
+  Uint8List? _thumbBytes() {
+    final encoded = widget.character.bioImageBase64.trim();
+    if (encoded.isEmpty) return null;
+    try {
+      return base64Decode(encoded);
     } catch (_) {
       return null;
     }
@@ -266,7 +301,7 @@ class _BioImageCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bytes = _bytes();
+    final bytes = _fullBytes ?? _thumbBytes();
     return Card(
       clipBehavior: Clip.antiAlias,
       child: Padding(
@@ -295,6 +330,8 @@ class _BioImageCard extends StatelessWidget {
                         child: Image.memory(
                           bytes,
                           fit: BoxFit.contain,
+                          // Не декодируем огромные фото в полное разрешение.
+                          cacheWidth: 1600,
                           errorBuilder: (_, __, ___) => const Center(
                             child: Text('Не удалось отобразить изображение', style: TextStyle(color: AppTheme.textSecondary)),
                           ),
@@ -307,16 +344,16 @@ class _BioImageCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: onPick,
+                    onPressed: widget.onPick,
                     icon: const Icon(Icons.upload_file_outlined),
                     label: Text(bytes == null ? 'Добавить изображение' : 'Заменить'),
                   ),
                 ),
-                if (onRemove != null) ...[
+                if (bytes != null) ...[
                   const SizedBox(width: 10),
                   IconButton(
                     tooltip: 'Удалить изображение',
-                    onPressed: onRemove,
+                    onPressed: widget.onRemove,
                     icon: const Icon(Icons.delete_outline),
                   ),
                 ],

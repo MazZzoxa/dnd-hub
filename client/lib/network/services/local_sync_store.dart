@@ -80,6 +80,52 @@ class LocalSyncStore {
     data['sync_id'] = syncId;
   }
 
+  static const _syncTables = <String, String>{
+    'item': 'items',
+    'spell': 'spells',
+    'ability': 'abilities',
+    'attack': 'attacks',
+    'note': 'notes',
+    'spell_slot': 'spell_slots',
+    'xp_transaction': 'xp_transactions',
+    'custom_action': 'custom_actions',
+    'character_condition': 'character_conditions',
+  };
+
+  /// Repairs child rows (items, spells, abilities, attacks, ...) that were
+  /// written to SQLite with an empty sync_id (for example by file/PDF import,
+  /// which inserts rows directly and bypasses the repositories). The generated
+  /// ID is persisted so the entity keeps the same network identity afterwards.
+  Future<void> _ensureChildSyncId(String entity, Map<String, dynamic> data) async {
+    final table = _syncTables[entity];
+    if (table == null) return;
+    final current = data['sync_id']?.toString().trim() ?? '';
+    if (current.isNotEmpty) return;
+
+    final localId = (data['id'] as num?)?.toInt();
+    if (localId == null) {
+      data['sync_id'] = SyncIds.newId();
+      return;
+    }
+
+    final db = await _database.database;
+    final rows = await db.query(
+      table,
+      columns: const ['sync_id'],
+      where: 'id = ?',
+      whereArgs: [localId],
+      limit: 1,
+    );
+    var syncId = rows.isEmpty ? '' : (rows.first['sync_id']?.toString().trim() ?? '');
+    if (syncId.isEmpty) {
+      syncId = SyncIds.newId();
+      if (rows.isNotEmpty) {
+        await db.update(table, {'sync_id': syncId}, where: 'id = ?', whereArgs: [localId]);
+      }
+    }
+    data['sync_id'] = syncId;
+  }
+
   Future<String> _characterSyncId(int characterId) async {
     final db = await _database.database;
     final rows = await db.query(
@@ -170,6 +216,8 @@ class LocalSyncStore {
     final data = Map<String, dynamic>.from(source);
     if (entity == 'character') {
       await _ensureCharacterSyncId(data);
+    } else {
+      await _ensureChildSyncId(entity, data);
     }
     _requireSyncId(data);
     data.remove('id');
